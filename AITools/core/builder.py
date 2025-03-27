@@ -21,7 +21,7 @@ class Builder(object):
             components: Optional[list] = None,
             name: str = None,
             mark: str = TYPE_KEY,
-            post_build_hooks: Optional[list] = None
+            post_build_hooks: Optional[list[Callable[[Any, Dict], None]]] = None
     ):
         """
         Initialize the builder with a configuration dictionary and a list of component classes.
@@ -30,6 +30,7 @@ class Builder(object):
             components: (Optional[list]) List of component classes.
             name: (str) Name of the builder.
             mark: (str) Mark used to identify component configurations in the config dictionary.
+            post_build_hooks: (Optional[list[Callable[[Any, Dict], None]]]) List of post-build hooks.
         """
         super().__init__()
         self.config = copy.deepcopy(config) if isinstance(config, dict) else config.copy()
