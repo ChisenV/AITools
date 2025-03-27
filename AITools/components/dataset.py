@@ -770,7 +770,8 @@ class OCRDatasetV2(IterableDataset):
 @manager.DATASETS.register_component
 class OCRRECDatasetV2(OCRDatasetV2):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, subject_to="label", **kwargs)
+        subject_to = kwargs.pop("subject_to", "label")
+        super().__init__(*args, subject_to=subject_to, **kwargs)
 
     def _parse_label(self, contents):
         return self.fmt_label_loads(contents)
