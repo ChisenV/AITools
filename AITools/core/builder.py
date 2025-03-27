@@ -37,7 +37,7 @@ class Builder(object):
 
         self._name = name
         self._mark = mark
-        if config.cfg_type_key != mark:
+        if isinstance(config, Config) and config.cfg_type_key != mark:
             logger.warning(f'The configuration type key "{config.cfg_type_key}" does not match '
                            f'the builder tag "{mark}". If you are sure you want to use it this '
                            f'way, ignore this warning.')
