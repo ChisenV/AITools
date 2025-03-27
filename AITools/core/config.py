@@ -6,20 +6,11 @@ import yaml
 from ast import literal_eval
 from typing import Any, Dict, Optional, List, Type, Union
 
-from .parser import ParserPlugin, JSONParser, XMLParser, YAMLParser
+from .parser import ParserPlugin, SUPPORTED_EXTENSIONS
 
-IMG_FORMATS = ["bmp", "jpg", "jpeg", "png", "tif", "tiff", "dng", "webp", "mpo"]
-VID_FORMATS = ["mp4", "mov", "avi", "mkv"]
-# `xyxy` means left top and right bottom
-# `ltwh` means left top and width, height(COCO format)
-# `xywh` means center x, center y and width, height(YOLO det format)
-# `xywha` means center x, center y, width, height and angle(YOLO obb format)
-BOX_FORMATS = ["xyxy", "ltwh", "xywh", "xywha"]
-
-_BASE_KEY = '_base_'
-_INHERIT_KEY = '_inherit_'
-_TYPE_KEY = '_type_'
-_SUPPORTED_EXTENSIONS = {'.json', '.xml', '.yaml', '.yml'}
+BASE_KEY = '_base_'
+INHERIT_KEY = '_inherit_'
+TYPE_KEY = '_type_'
 
 
 class Config(object):
@@ -31,12 +22,7 @@ class Config(object):
         - Secure deep copy and dictionary operation
     """
 
-    _parsers: Dict[str, Type[ParserPlugin]] = {
-        '.json': JSONParser,
-        '.xml': XMLParser,
-        '.yaml': YAMLParser,
-        '.yml': YAMLParser
-    }
+    _parsers: Dict[str, Type[ParserPlugin]] = SUPPORTED_EXTENSIONS
 
     def __init__(
             self,
@@ -45,6 +31,9 @@ class Config(object):
             opts: Optional[list] = None,
             cfg_name: str = None,
             cfg_parser: Optional[Type[ParserPlugin]] = None,
+            cfg_base_key: str = BASE_KEY,
+            cfg_inherit_key: str = INHERIT_KEY,
+            cfg_type_key: str = TYPE_KEY,
             cfg_strict_mode: bool = False,
             **kwargs
     ):
@@ -59,6 +48,9 @@ class Config(object):
         """
         self._name = cfg_name
         self._parser = cfg_parser
+        self.cfg_base_key = cfg_base_key
+        self.cfg_inherit_key = cfg_inherit_key
+        self.cfg_type_key = cfg_type_key
         self._strict_mode = cfg_strict_mode
         self._cfg = {}
 
@@ -105,16 +97,16 @@ class Config(object):
             raise FileNotFoundError(f"Config file not found: {path}")
 
         suffix = path.suffix.lower()
-        if suffix not in _SUPPORTED_EXTENSIONS:
-            raise ValueError(f"Unsupported config format: {suffix}. Supported: {_SUPPORTED_EXTENSIONS}")
+        if suffix not in self._parsers:
+            raise ValueError(f"Unsupported config format: {suffix}. Supported: {self._parsers.keys()}")
 
         self._parser = self._parser if self._parser else self.get_parser(path.suffix)
         config = self._parser.load(path)
 
         # Handle inheritance
-        if _BASE_KEY in config:
+        if self.cfg_base_key in config:
             base_dir = path.parent
-            base_files = config[_BASE_KEY]
+            base_files = config[self.cfg_base_key]
             base_files = [base_files] if isinstance(base_files, str) else base_files
             for bf in base_files:
                 base_path = bf if Path(bf).is_absolute() else base_dir / bf
@@ -175,7 +167,7 @@ class Config(object):
 
     def _merge_configs(self, config: Dict[str, Any], base_dir: str) -> Dict[str, Any]:
         """Recursively merge base configs"""
-        base_files = config.get(_BASE_KEY, [])
+        base_files = config.get(self.cfg_base_key, [])
         if isinstance(base_files, str):
             base_files = [base_files]
 
@@ -237,7 +229,8 @@ class Config(object):
 
 def dump(
         config: Union[Config, dict],
-        path: str, parser: Optional[ParserPlugin] = None,
+        path: str,
+        parser: Optional[ParserPlugin] = None,
         overwrite: bool = True
 ) -> None:
     """
@@ -246,8 +239,8 @@ def dump(
     Args:
         config: config objects
         path: Save path (format automatically selected according to suffix)
-        overwrite: Whether to overwrite existing files
         parser: Save format parser
+        overwrite: Whether to overwrite existing files
     Raises:
         FileExistsError: If the file already exists and `overwrite` is False
         ValueError: If the parser is None when config is a dict object

@@ -1,7 +1,9 @@
 from pathlib import Path
 from typing import Dict, Any, Protocol, runtime_checkable
 
-from .manager import PARSER
+import AITools.core.manager as manager
+
+__all__ = ['ParserPlugin', 'YAMLParser', 'JSONParser', 'XMLParser', 'SUPPORTED_EXTENSIONS']
 
 
 # --------------------- Plugin protocol definition ---------------------
@@ -21,7 +23,7 @@ class ParserPlugin(Protocol):
 
 
 # --------------------- YAML plugin implement ---------------------
-@PARSER.register_component
+@manager.PARSER.register_component
 class YAMLParser:
     """YAML format plugin"""
 
@@ -39,7 +41,7 @@ class YAMLParser:
 
 
 # --------------------- JSON plugin implement ---------------------
-@PARSER.register_component
+@manager.PARSER.register_component
 class JSONParser:
     """JSON format plugin"""
 
@@ -57,7 +59,7 @@ class JSONParser:
 
 
 # --------------------- XML plugin implement ---------------------
-@PARSER.register_component
+@manager.PARSER.register_component
 class XMLParser:
     """XML format plugin (attribute/element/text conversion)"""
 
@@ -213,3 +215,11 @@ class XMLParser:
 
         if left_idx >= right_idx:
             raise ValueError(f"Invalid fmt_att2key: '{fmt}'. '{{' must come before '}}'")
+
+
+SUPPORTED_EXTENSIONS = {
+        '.json': JSONParser,
+        '.xml': XMLParser,
+        '.yaml': YAMLParser,
+        '.yml': YAMLParser
+}

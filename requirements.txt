@@ -1,9 +1,10 @@
 pyyaml~=6.0.1
 matplotlib~=3.8.3
-tqdm~=4.66.2
+tqdm>=4.66.3
 scipy~=1.12.0
 pypiwin32
 Cython>=3.0.0
 pytest>=6.2.4
 pytest-benchmark>=3.4.1
 pyclibrary>=0.1.7
+numpy~=1.26.4

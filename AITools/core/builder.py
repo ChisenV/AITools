@@ -1,7 +1,11 @@
 import copy
 from typing import Optional, Dict, Any, Union, Callable
 
-from .config import _TYPE_KEY, Config
+from .config import Config, TYPE_KEY
+from .logger import get_logger
+from .manager import COMPONENT_MANAGERS
+
+logger = get_logger(__name__)
 
 
 class Builder(object):
@@ -16,7 +20,7 @@ class Builder(object):
             *,
             components: Optional[list] = None,
             name: str = None,
-            mark: str = _TYPE_KEY,
+            mark: str = TYPE_KEY,
             post_build_hooks: Optional[list] = None
     ):
         """
@@ -29,10 +33,14 @@ class Builder(object):
         """
         super().__init__()
         self.config = copy.deepcopy(config) if isinstance(config, dict) else config.copy()
-        self.components = components or []
+        self.components = components or COMPONENT_MANAGERS or []
 
         self._name = name
         self._mark = mark
+        if config.cfg_type_key != mark:
+            logger.warning(f'The configuration type key "{config.cfg_type_key}" does not match '
+                           f'the builder tag "{mark}". If you are sure you want to use it this '
+                           f'way, ignore this warning.')
         self._post_build_hooks = post_build_hooks or []
         # Store the configuration of all top-level components {attr_name: config}
         self._component_configs = {
