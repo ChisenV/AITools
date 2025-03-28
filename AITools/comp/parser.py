@@ -1,3 +1,4 @@
+from abc import ABC
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -6,15 +7,31 @@ from AITools.core import manager
 __all__ = ['YAMLParser', 'JSONParser', 'XMLParser']
 
 
-# --------------------- YAML plugin implement ---------------------
-@manager.PARSER.register_component
-class YAMLParser:
-    """YAML format plugin"""
+class Parser(ABC):
+    """Parser base class"""
+    _SUPPORTED_EXTENSIONS = []
 
     @classmethod
     def parsable_file_extensions(cls) -> List[str]:
-        """Parsable file extensions"""
-        return [".yaml", ".yml"]
+        """Enable the parser extension"""
+        return cls._SUPPORTED_EXTENSIONS
+
+    @classmethod
+    def load(cls, *args, **kwargs) -> Any:
+        """Load data from file"""
+        raise NotImplementedError
+
+    @classmethod
+    def dump(cls, *args, **kwargs) -> None:
+        """Dump data to file"""
+        raise NotImplementedError
+
+
+# --------------------- YAML plugin implement ---------------------
+@manager.PARSER.register_component
+class YAMLParser(Parser):
+    """YAML format plugin"""
+    _SUPPORTED_EXTENSIONS = [".yaml", ".yml"]
 
     @classmethod
     def load(cls, path: Path, encoding='utf-8', **kwargs) -> Dict[str, Any]:
@@ -31,13 +48,9 @@ class YAMLParser:
 
 # --------------------- JSON plugin implement ---------------------
 @manager.PARSER.register_component
-class JSONParser:
+class JSONParser(Parser):
     """JSON format plugin"""
-
-    @classmethod
-    def parsable_file_extensions(cls) -> List[str]:
-        """Parsable file extensions"""
-        return [".json"]
+    _SUPPORTED_EXTENSIONS = [".json"]
 
     @classmethod
     def load(cls, path: Path, encoding='utf-8', **kwargs) -> Dict[str, Any]:
@@ -54,13 +67,9 @@ class JSONParser:
 
 # --------------------- XML plugin implement ---------------------
 @manager.PARSER.register_component
-class XMLParser:
+class XMLParser(Parser):
     """XML format plugin (attribute/element/text conversion)"""
-
-    @classmethod
-    def parsable_file_extensions(cls) -> List[str]:
-        """Parsable file extensions"""
-        return [".xml"]
+    _SUPPORTED_EXTENSIONS = [".xml"]
 
     @classmethod
     def load(
