@@ -1,3 +1,3 @@
 from .base import *
-from .components import *
+from .comp import *
 from .core import *

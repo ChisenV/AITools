@@ -6,7 +6,9 @@ import yaml
 from ast import literal_eval
 from typing import Any, Dict, Optional, List, Type, Union
 
-from .parser import ParserPlugin, SUPPORTED_EXTENSIONS
+from .manager import PARSER as SUPPORTED_PARSERS
+
+from AITools.base.plugin_protocol_def import ParserPlugin
 
 BASE_KEY = '_base_'
 INHERIT_KEY = '_inherit_'
@@ -21,8 +23,6 @@ class Config(object):
         - Dynamic parameter coverage ('opts' parameter)
         - Secure deep copy and dictionary operation
     """
-
-    _parsers: Dict[str, Type[ParserPlugin]] = SUPPORTED_EXTENSIONS
 
     def __init__(
             self,
@@ -64,11 +64,6 @@ class Config(object):
         self._cfg = copy.deepcopy(self._merged_dict)
 
     @classmethod
-    def register_parser(cls, extension: str, parser: Type[ParserPlugin]):
-        """Register a new file format parser"""
-        cls._parsers[extension.lower()] = parser
-
-    @classmethod
     def get_parser(cls, extension: str) -> Type[ParserPlugin]:
         """
         Gets the parser for the corresponding suffix
@@ -79,11 +74,15 @@ class Config(object):
         Raises:
             ValueError: Unsupported file format
         """
+        if len(SUPPORTED_PARSERS) == 0:
+            raise ValueError("No parser registered, please register a parser first."
+                             "Using @manager.PARSER.register_component decorator to register a parser.")
         ext = extension.lower()
-        if ext not in cls._parsers:
-            raise ValueError(f"Unsupported config format: {ext}. "
-                             f"Supported: {list(cls._parsers.keys())}")
-        return cls._parsers[ext]
+        for name, parser in SUPPORTED_PARSERS.items():
+            if getattr(parser, 'parsable_file_extensions', None) and ext in parser.parsable_file_extensions():
+                return parser
+        raise ValueError(f"No found parser supporting this file format: '{ext}', "
+                         f"supported {SUPPORTED_PARSERS}")
 
     @property
     def dic(self) -> Dict[str, Any]:
@@ -95,10 +94,6 @@ class Config(object):
         path = Path(path).resolve()
         if not path.exists():
             raise FileNotFoundError(f"Config file not found: {path}")
-
-        suffix = path.suffix.lower()
-        if suffix not in self._parsers:
-            raise ValueError(f"Unsupported config format: {suffix}. Supported: {self._parsers.keys()}")
 
         self._parser = self._parser if self._parser else self.get_parser(path.suffix)
         config = self._parser.load(path)

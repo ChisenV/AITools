@@ -1,31 +1,20 @@
 from pathlib import Path
-from typing import Dict, Any, Protocol, runtime_checkable
+from typing import Dict, Any, List
 
-import AITools.core.manager as manager
+from AITools.core import manager
 
-__all__ = ['ParserPlugin', 'YAMLParser', 'JSONParser', 'XMLParser', 'SUPPORTED_EXTENSIONS']
-
-
-# --------------------- Plugin protocol definition ---------------------
-@runtime_checkable
-class ParserPlugin(Protocol):
-    """Configuration file parsing plugin protocol"""
-
-    @classmethod
-    def load(cls, path: Path, **kwargs) -> Dict[str, Any]:
-        """Load configuration from file"""
-        ...
-
-    @classmethod
-    def dump(cls, data: Dict[str, Any], path: Path, **kwargs) -> None:
-        """Save the configuration to a file"""
-        ...
+__all__ = ['YAMLParser', 'JSONParser', 'XMLParser']
 
 
 # --------------------- YAML plugin implement ---------------------
 @manager.PARSER.register_component
 class YAMLParser:
     """YAML format plugin"""
+
+    @classmethod
+    def parsable_file_extensions(cls) -> List[str]:
+        """Parsable file extensions"""
+        return [".yaml", ".yml"]
 
     @classmethod
     def load(cls, path: Path, encoding='utf-8', **kwargs) -> Dict[str, Any]:
@@ -46,6 +35,11 @@ class JSONParser:
     """JSON format plugin"""
 
     @classmethod
+    def parsable_file_extensions(cls) -> List[str]:
+        """Parsable file extensions"""
+        return [".json"]
+
+    @classmethod
     def load(cls, path: Path, encoding='utf-8', **kwargs) -> Dict[str, Any]:
         import json
         with open(path, 'r', encoding=encoding) as f:
@@ -62,6 +56,11 @@ class JSONParser:
 @manager.PARSER.register_component
 class XMLParser:
     """XML format plugin (attribute/element/text conversion)"""
+
+    @classmethod
+    def parsable_file_extensions(cls) -> List[str]:
+        """Parsable file extensions"""
+        return [".xml"]
 
     @classmethod
     def load(
@@ -217,9 +216,9 @@ class XMLParser:
             raise ValueError(f"Invalid fmt_att2key: '{fmt}'. '{{' must come before '}}'")
 
 
-SUPPORTED_EXTENSIONS = {
-        '.json': JSONParser,
-        '.xml': XMLParser,
-        '.yaml': YAMLParser,
-        '.yml': YAMLParser
-}
+# SUPPORTED_EXTENSIONS = {
+#         '.json': JSONParser,
+#         '.xml': XMLParser,
+#         '.yaml': YAMLParser,
+#         '.yml': YAMLParser
+# }

@@ -2,7 +2,7 @@ import inspect
 
 import warnings
 from types import MappingProxyType
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union, ItemsView
 
 
 class ComponentManager:
@@ -77,6 +77,9 @@ class ComponentManager:
     @property
     def components_dict(self) -> MappingProxyType:
         return MappingProxyType(self._components_dict)
+
+    def items(self) -> ItemsView:
+        return MappingProxyType(self._components_dict).items()
 
     @property
     def name(self) -> Optional[str]:

@@ -1,6 +1,6 @@
 import tensorrt as trt
 
-from AITools.components.backend import DeployModel
+from AITools.comp.backend import DeployModel
 
 
 class TensorRTModel(DeployModel):
