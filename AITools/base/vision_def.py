@@ -2,11 +2,9 @@ import io
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Union, List, Optional, Tuple, Dict, Any
-import numpy as np
 from PIL import Image
 
-from AITools.core import manager
-
+import numpy as np
 try:
     import torch
 except ImportError:
@@ -115,7 +113,6 @@ class ImageData:
         return Image.fromarray(self.to_numpy())
 
 
-@manager.DATASETS.register_component
 @dataclass
 class BoundingBox:
     """通用边界框定义（支持多种格式）"""
@@ -146,6 +143,7 @@ class ClassificationLabel:
     """图像分类标签"""
     class_id: int
     class_name: Optional[str] = None
+    class_confidence: Optional[float] = None  # 预测时使用
 
 
 @dataclass
@@ -153,15 +151,19 @@ class SegmentationLabel:
     """语义分割标签"""
     mask: np.ndarray                            # 2D或3D的掩码
     class_map: Optional[Dict[int, str]] = None  # 类别ID到名称的映射
+    score_map: Optional[np.ndarray] = None      # 分数图（可选）
 
 
 @dataclass
 class OCRLabel:
     """OCR标签"""
     text: str
-    char_boxes: List[BoundingBox]    # 字符级边界框
-    text_box: BoundingBox            # 文本区域边界框
-    text_direction: int              # 暂定文本旋转角度
+    char_boxes: List[BoundingBox]                 # 字符级边界框
+    text_box: BoundingBox                         # 文本区域边界框
+    text_direction: int                           # 暂定文本旋转角度
+    box_confidence: Optional[float] = None        # 预测时使用
+    text_confidence: Optional[float] = None       # 预测时使用
+    direction_confidence: Optional[float] = None  # 预测时使用
 
 
 @dataclass
@@ -192,6 +194,15 @@ class DatasetItem:
     """数据集返回的原子单元"""
     image: ImageData
     labels: List[Union[
+        DetectionLabel,
+        ClassificationLabel,
+        SegmentationLabel,
+        OCRLabel,
+        KeypointLabel,
+        InstanceSegmentationLabel,
+        Any
+    ]] = field(default_factory=list)
+    predictions: List[Union[
         DetectionLabel,
         ClassificationLabel,
         SegmentationLabel,

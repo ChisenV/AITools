@@ -214,11 +214,3 @@ class XMLParser:
 
         if left_idx >= right_idx:
             raise ValueError(f"Invalid fmt_att2key: '{fmt}'. '{{' must come before '}}'")
-
-
-# SUPPORTED_EXTENSIONS = {
-#         '.json': JSONParser,
-#         '.xml': XMLParser,
-#         '.yaml': YAMLParser,
-#         '.yml': YAMLParser
-# }
