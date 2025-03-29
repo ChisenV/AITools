@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Union
 from enum import Enum
+
+from AITools import Config
 
 
 class ModelType(Enum):
@@ -99,24 +102,32 @@ class FrameworkType(Enum):
 
 
 class BaseModelHandler(ABC):
-    def __init__(self, model_path: str, config: Dict[str, Any]):
-        self.model_path = model_path
-        self.config = config  # 包含设备、精度等参数
-        self.model_info = {}  # 存储输入/输出层名称、形状等元数据
+
+    _SUPPORTED_EXTENSIONS = []
+
+    def __init__(
+            self,
+            model_path: Union[str, Path],
+            config: Union[Config, Dict[str, Any]],
+            **kwargs
+    ):
+        self.model_path = Path(model_path)
+        self.config = config
+        self.config.update(kwargs)
         self._initialized = False
 
     @abstractmethod
-    def load(self):
+    def load(self, *args, **kwargs):
         """加载模型并初始化计算资源（如 GPU 绑定）"""
         pass
 
     @abstractmethod
-    def run(self, input_data: Any) -> Any:
+    def run(self, *args, **kwargs) -> Any:
         """执行推理，返回原始输出（未后处理）"""
         pass
 
     @abstractmethod
-    def destroy(self):
+    def destroy(self, *args, **kwargs):
         """释放模型占用的资源（如显存、线程池）"""
         pass
 
@@ -127,3 +138,9 @@ class BaseModelHandler(ABC):
     def __call__(self, *args, **kwargs):
         if self.is_ready:
             return self.run(*args, **kwargs)
+
+    def __enter__(self, *args, **kwargs):
+        self.load(*args, **kwargs)
+
+    def __exit__(self, *args, **kwargs):
+        self.destroy(*args, **kwargs)

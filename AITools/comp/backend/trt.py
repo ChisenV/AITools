@@ -1,13 +1,14 @@
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Union
 
 import numpy as np
 import tensorrt as trt
 from cuda import cudart
 from tensorrt import IBuilderConfig
 
+from AITools.core.config import Config
 from AITools.base.model_def import BaseModelHandler
 
 
@@ -16,162 +17,213 @@ class TensorRTModel(BaseModelHandler):
     TensorRT adapter
     """
 
+    _SUPPORTED_EXTENSIONS = [".trt", ".engine", ".onnx"]
+
     def __init__(
             self,
-            model_path: str,
-            logger: trt.Logger = None,
-            explicit_batch=True,
-            use_fp16=True,
+            model_path: Union[str, Path],
+            config: Union[Config, Dict[str, Any]],
             **kwargs
     ):
-        super().__init__(**kwargs)
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(f"{model_path} does not exist.")
-        self.model_path = model_path
-        self.model_file = os.path.join(model_path, "model.trt")
-        try:
-            if not os.path.exists(self.model_file):
-                raise FileNotFoundError(f"{self.model_file} does not exist.")
-        except FileNotFoundError as e:
-            if not os.path.exists(os.path.join(model_path, "model.onnx")):
-                raise FileNotFoundError(f"{self.model_file} does not exist.")
-            self.model_file = os.path.join(model_path, "model.onnx")
+        super().__init__(model_path=model_path, config=config, **kwargs)
 
-        self.need_build = True if self.model_file.endswith(".onnx") else False
+        self.logger = self.config.get("logger", trt.Logger(trt.Logger.ERROR))
+        self.use_fp16 = self.config.get("use_fp16", True)
+        # The explicit batch mode means that when the network is created,
+        # the batch size of the input and output tensors of the network is
+        # explicitly specified. This can improve the efficiency of the
+        # network, but you need to manually set the batch size.
+        self.explicit_batch = self.config.get("explicit_batch", True)
+        self.batch_config = self.config.get("batch_config", (1, 4, 8))
 
-        # Buildtime assets
-        if logger is None:
-            self.logger = trt.Logger(trt.Logger.Severity.ERROR)
-        else:
-            self.logger = logger
+        self.model_file = self._resolve_model_file()
+        self.need_build = self.model_file.suffix in [".onnx"]
+        self.model_info = OrderedDict()
+        # I/O cache
+        self.buffers = OrderedDict()
 
-        self.use_fp16 = use_fp16
-
-        self.builder = trt.Builder(self.logger)
-        self.network = (self.builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
-                        if explicit_batch else self.builder.create_network())
-        self.profile = self.builder.create_optimization_profile()
-        self.config: IBuilderConfig = self.builder.create_builder_config()
-
-        # Serialized model
-        self.engine_bytes = None
-        self.tensor_list = []
-        self.tensor_name_list = []
-        self.n_input = 0
-        self.n_output = 0
-
-        # Runtime assets
-        self.runtime = None
+        # TensorRT 组件
+        self.builder = None
+        self.network = None
+        self.config = None
+        self.profile = None
         self.engine = None
         self.context = None
+        self.runtime = None
 
-    def _build(self) -> None:
-        parser = trt.OnnxParser(self.network, self.logger)
-
-        # parse ONNX files
-        success = parser.parse_from_file(str(self.model_file))  # parse from file
-
-        if not success:
-            for i in range(parser.num_errors):  # Get error information
-                error = parser.get_error(i)
-                print(error)  # Print error information
-                print("error.code() = {}".format(error.code()))
-                print("error.file() = {}".format(error.file()))
-                print("error.func() = {}".format(error.func()))
-                print("error.line() = {}".format(error.line()))
-            parser.clear_errors()
-            raise IOError(f"Fail parsing {self.model_file}")
-
-        if self.use_fp16 and self.builder.platform_has_fast_fp16:
-            self.config.set_flag(trt.BuilderFlag.FP16)
-            print("FP16 is supported on this platform, and will be used.")
-
-        # self.engine_bytes = self.builder.build_serialized_network(self.network, self.config)
-        return self.builder.build_serialized_network(self.network, self.config)
+    def _resolve_model_file(self) -> Path:
+        """Determine the model file path, preferentially selecting ".trt", ".engine" or ".onnx" files"""
+        if self.model_path.is_dir():
+            trt_files = [f for f in os.listdir(self.model_path)
+                         if f.endswith(tuple(self._SUPPORTED_EXTENSIONS))]
+            if trt_files:
+                return self.model_path / trt_files[0]
+        elif self.model_path.suffix in self._SUPPORTED_EXTENSIONS:
+            return self.model_path
+        else:
+            raise FileNotFoundError(f"No valid model file found in {self.model_path}")
 
     def load(self):
+        """Load or build the TensorRT engine to initialize the execution context"""
         if self.need_build:
-            print("Building TensorRT engine...")
-            self.engine_bytes = self._build()
-
-            # serialize the engine to a file
-            with open(os.path.join(self.model_path, "model.trt"), "wb") as f:
-                f.write(self.engine_bytes)
-            print(f"TensorRT engine saved to file: {os.path.join(self.model_path, 'model.trt')}")
+            self.build_engine()  # Build the engine from ONNX
+            self.dump()  # Save the serialized engine
         else:
-            if not (self.model_file.endswith(".engine") or self.model_file.endswith(".trt")):
-                raise IOError(f"{self.model_file} is not a TensorRT engine file.")
+            self.load_engine()  # 直接加载已序列化的引擎
 
-            print("Loading TensorRT engine...")
-            with open(self.model_file, "rb") as f:
-                self.engine_bytes = f.read()
+        # Initializes the execution context
+        self.context = self.engine.create_execution_context()
 
-        if self.runtime is None:  # Just in case we already have a runtime from outside
-            self.runtime = trt.Runtime(self.logger)
-        if self.engine is None:  # Just in case we already have an engine from outside
-            self.engine = self.runtime.deserialize_cuda_engine(self.engine_bytes)
-        if self.context is None:
-            self.context = self.engine.create_execution_context()
-
-        for i in range(self.engine.num_io_tensors):
-            name = self.engine.get_tensor_name(i)
-            data_type = self.engine.get_tensor_dtype(name)
-            is_input = self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
-            self.n_input += is_input
-            self.n_output += not is_input
-            runtime_shape = self.context.get_tensor_shape(name)
-            # if not is_input and not len(self.categories) == runtime_shape[1]:
-            #     raise ValueError(f"Output '{name}' has wrong shape {runtime_shape}, "
-            #                      f"not match to categories {self.categories}")
-            n_byte = trt.volume(runtime_shape) * data_type.itemsize
-            self.tensor_list.append((name, data_type, runtime_shape, is_input, n_byte))
-
-        print(f"TensorRT engine has {len(self.tensor_list)} tensors: {self.tensor_list}")
+        # Initializes the memory cache
+        self._setup_buffers()
         self._initialized = True
-        return
 
-    def serialize_engine(self, trt_file: Path):
-        # Save engine bytes as TensorRT engine file
-        with open(trt_file, "wb") as f:
-            f.write(self.engine_bytes)
-        return
+    def run(self, data):
+        return self.infer(input_data=data)
 
-    def infer(self, input_data=None, b_print_io: bool = False, b_get_timeline: bool = False) -> dict[Any, Any]:
+    def destroy(self):
+        if self.context:
+            self.context.__del__()
+        if self.engine:
+            self.engine.__del__()
+        if self.runtime:
+            self.runtime.__del__()
+
+        # Free GPU memory
+        for _, (_, devicePtr, _, _) in self.buffers.items():
+            cudart.cudaFree(devicePtr)
+
+        self._initialized = False
+
+    def build_engine(self, batch_config: Union[list, tuple] = None):
+        """Build the TensorRT engine from ONNX"""
+        min_batch, opt_batch, max_batch = batch_config or self.batch_config
+        self.builder = trt.Builder(self.logger)
+        self.network = self.builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+
+        # Analyze the ONNX model
+        parser = trt.OnnxParser(self.network, self.logger)
+        if not parser.parse_from_file(self.model_file):
+            raise RuntimeError(f"Failed to parse ONNX file: {[e.description for e in parser.errors]}")
+
+        # Configure build parameters
+        self.config = self.builder.create_builder_config()
+        if self.use_fp16 and self.builder.platform_has_fast_fp16:
+            self.config.set_flag(trt.BuilderFlag.FP16)
+
+        # Set the optimization profile
+        self.profile = self.builder.create_optimization_profile()
+        for i in range(self.network.num_inputs):
+            input_tensor = self.network.get_input(i)
+            input_name = input_tensor.name
+
+            shape = list(input_tensor.shape)
+            min_shape = list(shape)
+            opt_shape = list(shape)
+            max_shape = list(shape)
+
+            if self.explicit_batch:
+                if shape[0] == -1:
+                    min_shape[0] = min_batch
+                    opt_shape[0] = opt_batch
+                    max_shape[0] = max_batch
+                else:
+                    min_shape[0] = shape[0]
+                    opt_shape[0] = shape[0]
+                    max_shape[0] = shape[0]
+            else:
+                raise ValueError("Explicit batch mode is required for building TensorRT engine building from onnx.")
+
+            self.profile.set_shape(input_name, min=tuple(min_shape), opt=tuple(opt_shape), max=tuple(max_shape))
+        self.config.add_optimization_profile(self.profile)
+
+        # 构建序列化引擎
+        self.engine = self.builder.build_engine(self.network, self.config)
+        if self.engine is None:
+            raise RuntimeError("Failed to build TensorRT engine")
+
+    def dump(self, path: Path = None):
+        """保存序列化的引擎文件"""
+        if path is None:
+            path = self.model_file.with_suffix(".trt")
+        if path.suffix not in [".trt", ".engine"]:
+            if path.is_dir():
+                path = path / "model.trt"
+            else:
+                path = path.with_suffix(".trt")
+        with open(path, "wb") as f:
+            f.write(self.engine.serialize())
+
+    def load_engine(self, path: Path = None):
+        """加载预构建的 TensorRT 引擎"""
+        if path is None:
+            path = self.model_file
+        with open(path, "rb") as f:
+            runtime = trt.Runtime(self.logger)
+            self.engine = runtime.deserialize_cuda_engine(f.read())
+
+    def _setup_buffers(self):
+        """Allocate GPU/CPU memory for input and output"""
+        for idx in range(self.engine.num_io_tensors):
+            name = self.engine.get_tensor_name(idx)
+            dtype = self.engine.get_tensor_dtype(name)
+            shape = self.engine.get_tensor_shape(name)
+            is_input = self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
+
+            # Allocate GPU memory and CPU memory
+            n_byte = trt.volume(shape) * dtype.itemsize
+            cuda_err, device_buffer = cudart.cudaMalloc(n_byte)
+            host_buffer = np.empty(shape, dtype=self.nptype(dtype))
+
+            if is_input:
+                self.model_info.setdefault("inputs", []).append({
+                    "name": name,
+                    "dtype": self.nptype(dtype),
+                    "shape": shape,
+                    "host": host_buffer,
+                    "device": device_buffer,
+                    "size": n_byte
+                })
+            else:
+                self.model_info.setdefault("outputs", []).append({
+                    "name": name,
+                    "dtype": self.nptype(dtype),
+                    "shape": shape,
+                    "host": host_buffer,
+                    "device": device_buffer,
+                    "size": n_byte
+                })
+            self.buffers[name] = [host_buffer.ctypes.data, device_buffer, n_byte, is_input]
+            self.context.set_tensor_address(name, device_buffer)
+
+    def infer(self, input_data: Dict[str, np.ndarray] = None) -> dict[Any, Any]:
         # Prepare work before inference
         if input_data is None:
             input_data = {}
-        self.buffer = OrderedDict()
-        for name, data_type, runtime_shape, is_input, n_byte in self.tensor_list:
-            host_buffer = np.empty(runtime_shape, dtype=self.nptype(data_type))
-            cuda_err, device_buffer = cudart.cudaMalloc(n_byte)
-            self.buffer[name] = [host_buffer, device_buffer, n_byte]
 
-        for name, data in input_data.items():
-            self.buffer[name][0] = np.ascontiguousarray(data["data"])  # host_buffer
-
-        for name, data_type, runtime_shape, is_input, n_byte in self.tensor_list:
-            self.context.set_tensor_address(name, self.buffer[name][1])  # device_buffer
-            if is_input:
-                cudart.cudaMemcpy(self.buffer[name][1], self.buffer[name][0].ctypes.data, self.buffer[name][2],
-                                  cudart.cudaMemcpyKind.cudaMemcpyHostToDevice)
+        # Copy the input data to the GPU
+        for input_info in self.model_info["inputs"]:
+            if input_info["name"] not in input_data:
+                raise ValueError(f"Missing input data for input tensor {input_info['name']}")
+            np.copyto(input_info["host"].ctype.data, input_data[input_info["name"]].ravel())
+            cudart.cudaMemcpy(
+                input_info["device"],
+                input_info["host"].ctype.data,
+                input_info["size"],
+                cudart.cudaMemcpyKind.cudaMemcpyHostToDevice
+            )
 
         self.context.execute_async_v3(0)
 
         outputs = {}
-        for name, _, _, is_input, _ in self.tensor_list:
-            if not is_input:
-                cudart.cudaMemcpy(self.buffer[name][0].ctypes.data, self.buffer[name][1], self.buffer[name][2],
-                                  cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost)
-                outputs[name] = self.buffer[name][0]
-
-        if b_print_io:
-            for name, _, _, _, _ in self.tensor_list:
-                print(name)
-                print(self.buffer[name][0])
-
-        for _, device_buffer, _ in self.buffer.values():
-            cudart.cudaFree(device_buffer)
-
+        for output_info in self.model_info["outputs"]:
+            cudart.cudaMemcpy(
+                output_info["host"].ctype.data,
+                output_info["device"],
+                output_info["size"],
+                cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost
+            )
+            outputs[output_info["name"]] = output_info["host"].copy()
         return outputs
 
     @staticmethod
@@ -205,14 +257,3 @@ class TensorRTModel(BaseModelHandler):
             return mapping[trt_type]
 
         raise TypeError("Could not resolve TensorRT datatype to an equivalent numpy datatype.")
-
-    def result(self, **kwargs):
-        """
-        Get the result of the inference.
-        Args:
-            **kwargs:
-
-        Returns:
-
-        """
-        raise NotImplementedError
