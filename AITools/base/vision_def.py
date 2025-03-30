@@ -5,15 +5,21 @@ from typing import Union, List, Optional, Tuple, Dict, Any, TypeVar
 from PIL import Image
 
 import numpy as np
+
+
+class _FakeTorch:
+    class Tensor:
+        pass
+
+    @staticmethod
+    def from_numpy(*args, **kwargs):
+        raise ImportError("PyTorch is not installed. Please install it to use this feature.")
+
+
 try:
     import torch
 except ImportError:
-    class torch:
-        Tensor = TypeVar("T")
-
-        @staticmethod
-        def from_numpy(*args, **kwargs):
-            raise ImportError("PyTorch is not installed. Please install it to use this feature.")
+    torch = _FakeTorch
 
 __all__ = [
     "IMG_FORMATS", 

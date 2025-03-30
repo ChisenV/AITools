@@ -5,8 +5,9 @@ from typing import Any, Dict, Union
 
 import numpy as np
 import tensorrt as trt
-from cuda import cudart
+from cuda.bindings import driver
 
+from . import check_cuda_errors
 from AITools.core.config import Config
 from AITools.base.model_def import BaseModelHandler
 
@@ -49,7 +50,7 @@ class TensorRTModel(BaseModelHandler):
         # I/O cache
         self.buffers = OrderedDict()
 
-        # TensorRT 组件
+        # TensorRT
         self.builder = None
         self.network = None
         self.config = None
@@ -76,7 +77,7 @@ class TensorRTModel(BaseModelHandler):
             self.build_engine()  # Build the engine from ONNX
             self.dump()  # Save the serialized engine
         else:
-            self.load_engine()  # 直接加载已序列化的引擎
+            self.load_engine()  # Load the serialized engine directly
 
         # Initializes the execution context
         self.context = self.engine.create_execution_context()
@@ -98,7 +99,7 @@ class TensorRTModel(BaseModelHandler):
 
         # Free GPU memory
         for _, (_, devicePtr, _, _) in self.buffers.items():
-            cudart.cudaFree(devicePtr)
+            check_cuda_errors(driver.cuMemFree(devicePtr))
 
         self._initialized = False
 
@@ -150,7 +151,7 @@ class TensorRTModel(BaseModelHandler):
             raise RuntimeError("Failed to build TensorRT engine")
 
     def dump(self, path: Path = None):
-        """保存序列化的引擎文件"""
+        """Save the serialized engine file"""
         if path is None:
             path = self.model_file.with_suffix(_TENSORRT_ENGINE_DEFAULT_SUFFIX)
         if path.suffix not in _TENSORRT_MODEL_SUPPORT_SUFFIX:
@@ -162,7 +163,7 @@ class TensorRTModel(BaseModelHandler):
             f.write(self.engine.serialize())
 
     def load_engine(self, path: Path = None):
-        """加载预构建的 TensorRT 引擎"""
+        """Load the pre-built TensorRT engine"""
         if path is None:
             path = self.model_file
         with open(path, "rb") as f:
@@ -179,7 +180,8 @@ class TensorRTModel(BaseModelHandler):
 
             # Allocate GPU memory and CPU memory
             n_byte = trt.volume(shape) * dtype.itemsize
-            cuda_err, device_buffer = cudart.cudaMalloc(n_byte)
+            cuda_err, device_buffer = driver.cuMemAlloc(n_byte)
+            check_cuda_errors(cuda_err)
             host_buffer = np.empty(shape, dtype=self.nptype(dtype))
 
             if is_input:
@@ -213,23 +215,21 @@ class TensorRTModel(BaseModelHandler):
             if input_info["name"] not in input_data:
                 raise ValueError(f"Missing input data for input tensor {input_info['name']}")
             np.copyto(input_info["host"].ctype.data, input_data[input_info["name"]].ravel())
-            cudart.cudaMemcpy(
+            check_cuda_errors(driver.cuMemcpyHtoD(
                 input_info["device"],
                 input_info["host"].ctype.data,
-                input_info["size"],
-                cudart.cudaMemcpyKind.cudaMemcpyHostToDevice
-            )
+                input_info["size"]
+            ))
 
         self.context.execute_async_v3(0)
 
         outputs = {}
         for output_info in self.model_info["outputs"]:
-            cudart.cudaMemcpy(
+            check_cuda_errors(driver.cuMemcpyDtoH(
                 output_info["host"].ctype.data,
                 output_info["device"],
-                output_info["size"],
-                cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost
-            )
+                output_info["size"]
+            ))
             outputs[output_info["name"]] = output_info["host"].copy()
         return outputs
 
@@ -243,24 +243,4 @@ class TensorRTModel(BaseModelHandler):
 
         :returns: The equivalent numpy type.
         """
-        import numpy as np
-
-        limit_version = [1, 20, 0]
-        np_ver = [int(i) for i in np.version.version.split(".")]
-
-        if np_ver < limit_version:
-            return trt.nptype(trt_type)
-
-        mapping = {
-            trt.float32: np.float32,
-            trt.float16: np.float16,
-            trt.int8: np.int8,
-            trt.int32: np.int32,
-            trt.bool: np.bool_,
-            trt.uint8: np.uint8,
-        }
-
-        if trt_type in mapping:
-            return mapping[trt_type]
-
-        raise TypeError("Could not resolve TensorRT datatype to an equivalent numpy datatype.")
+        return trt.nptype(trt_type)
