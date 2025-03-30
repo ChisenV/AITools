@@ -39,7 +39,7 @@ class Config(object):
     ):
         """
         Args:
-            path: Configuration file path (YAML/JSON support)
+            path: Configuration file path (YAML/JSON/XML support)
             opts: Parameter override list (["key=value"])
             cfg_name: Configuration name
             cfg_parser: Custom parser (if not specified, will be determined by file extension)
@@ -143,6 +143,14 @@ class Config(object):
     def copy(self) -> 'Config':
         """Returns an isolated deep copy"""
         return Config(**copy.deepcopy(self._cfg))
+    
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        """
+        Get a configuration item with a default value
+        Return:
+            return default
+        """
+        return self._cfg.setdefault(key, default)
 
     def _deep_merge(self, base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively merge two dictionaries"""
@@ -212,10 +220,7 @@ class Config(object):
         return updated
 
     def __str__(self) -> str:
-        return ("+ " + "="*96 + "\n+ " +
-                yaml.dump(self._cfg, allow_unicode=True, sort_keys=False)
-                .replace("\n", "\n+ ")
-                + "="*96)
+        return ("+ " + "\n+ ".join(yaml.dump(self._cfg, allow_unicode=True, sort_keys=False).split("\n")[:-1]))
 
     def dump(self, path: str, overwrite: bool = True) -> None:
         """Save the current configuration to a file"""

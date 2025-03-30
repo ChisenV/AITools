@@ -1,14 +1,15 @@
-pyyaml~=6.0.1
-matplotlib~=3.8.3
+pyyaml
+matplotlib>=3.8.3
 tqdm>=4.66.3
-scipy~=1.12.0
+scipy>=1.12.0
 pypiwin32
 Cython>=3.0.0
 pytest>=6.2.4
 pytest-benchmark>=3.4.1
 pyclibrary>=0.1.7
-numpy~=1.26.4
+numpy>=1.21.6  # onnxruntime required
 pillow>=10.3.0
-tensorrt~=8.5.1.7
-onnxruntime~=1.18.1
-onnx>=1.17
+pycuda
+tensorrt>=8.6.1  # Optional require: onnxruntime==1.8.1 when python_version<"3.10"; onnxruntime==1.12.1 when python_version=="3.10"
+onnxruntime>=1.21.0
+onnx>=1.16.0

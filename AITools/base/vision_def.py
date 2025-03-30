@@ -1,7 +1,7 @@
 import io
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Union, List, Optional, Tuple, Dict, Any
+from typing import Union, List, Optional, Tuple, Dict, Any, TypeVar
 from PIL import Image
 
 import numpy as np
@@ -9,16 +9,27 @@ try:
     import torch
 except ImportError:
     class torch:
-        Tensor = None
+        Tensor = TypeVar("T")
 
         @staticmethod
         def from_numpy(*args, **kwargs):
             raise ImportError("PyTorch is not installed. Please install it to use this feature.")
 
 __all__ = [
-    "IMG_FORMATS", "VID_FORMATS", "BoxFormat", "ImageType", "ImageData",
-    "BoundingBox", "DetectionLabel", "KeypointLabel", "ClassificationLabel", "SegmentationLabel",
-    "OCRLabel", "MaskFormat", "InstanceSegmentationLabel", "DatasetItem"
+    "IMG_FORMATS", 
+    "VID_FORMATS", 
+    "BoxFormat", 
+    "ImageType", 
+    "ImageData",
+    "BoundingBox", 
+    "DetectionLabel", 
+    "KeypointLabel", 
+    "ClassificationLabel", 
+    "SegmentationLabel",
+    "OCRLabel", 
+    "MaskFormat", 
+    "InstanceSegmentationLabel", 
+    "DatasetItem"
 ]
 
 IMG_FORMATS = ["bmp", "jpg", "jpeg", "png", "tif", "tiff", "dng", "webp", "mpo"]

@@ -6,10 +6,17 @@ from typing import Any, Dict, Union
 import numpy as np
 import tensorrt as trt
 from cuda import cudart
-from tensorrt import IBuilderConfig
 
 from AITools.core.config import Config
 from AITools.base.model_def import BaseModelHandler
+
+_TENSORRT_MODEL_SUPPORT_SUFFIX = [".trt", ".engine", ".onnx"]
+_TENSORRT_ONNX_SUPPORT_SUFFIX = [".onnx"]
+_TENSORRT_ENGINE_DEFAULT_SUFFIX = ".trt"
+_TENSORRT_ENGINE_DEFAULT_NAME = "model" + _TENSORRT_ENGINE_DEFAULT_SUFFIX
+_TENSORRT_CONFIG_DEFAULT_USE_FP16 = True
+_TENSORRT_CONFIG_DEFAULT_EXPLICIT_BATCH = True
+_TENSORRT_CONFIG_DEFAULT_BATCH_CONFIG = (1, 4, 8)
 
 
 class TensorRTModel(BaseModelHandler):
@@ -17,7 +24,7 @@ class TensorRTModel(BaseModelHandler):
     TensorRT adapter
     """
 
-    _SUPPORTED_EXTENSIONS = [".trt", ".engine", ".onnx"]
+    _SUPPORTED_EXTENSIONS = _TENSORRT_MODEL_SUPPORT_SUFFIX
 
     def __init__(
             self,
@@ -28,16 +35,16 @@ class TensorRTModel(BaseModelHandler):
         super().__init__(model_path=model_path, config=config, **kwargs)
 
         self.logger = self.config.get("logger", trt.Logger(trt.Logger.ERROR))
-        self.use_fp16 = self.config.get("use_fp16", True)
+        self.use_fp16 = self.config.get("use_fp16", _TENSORRT_CONFIG_DEFAULT_USE_FP16)
         # The explicit batch mode means that when the network is created,
         # the batch size of the input and output tensors of the network is
         # explicitly specified. This can improve the efficiency of the
         # network, but you need to manually set the batch size.
-        self.explicit_batch = self.config.get("explicit_batch", True)
-        self.batch_config = self.config.get("batch_config", (1, 4, 8))
+        self.explicit_batch = self.config.get("explicit_batch", _TENSORRT_CONFIG_DEFAULT_EXPLICIT_BATCH)
+        self.batch_config = self.config.get("batch_config", _TENSORRT_CONFIG_DEFAULT_BATCH_CONFIG)
 
         self.model_file = self._resolve_model_file()
-        self.need_build = self.model_file.suffix in [".onnx"]
+        self.need_build = self.model_file.suffix in _TENSORRT_ONNX_SUPPORT_SUFFIX
         self.model_info = OrderedDict()
         # I/O cache
         self.buffers = OrderedDict()
@@ -145,12 +152,12 @@ class TensorRTModel(BaseModelHandler):
     def dump(self, path: Path = None):
         """保存序列化的引擎文件"""
         if path is None:
-            path = self.model_file.with_suffix(".trt")
-        if path.suffix not in [".trt", ".engine"]:
+            path = self.model_file.with_suffix(_TENSORRT_ENGINE_DEFAULT_SUFFIX)
+        if path.suffix not in _TENSORRT_MODEL_SUPPORT_SUFFIX:
             if path.is_dir():
-                path = path / "model.trt"
+                path = path / _TENSORRT_ENGINE_DEFAULT_NAME
             else:
-                path = path.with_suffix(".trt")
+                path = path.with_suffix(_TENSORRT_ENGINE_DEFAULT_SUFFIX)
         with open(path, "wb") as f:
             f.write(self.engine.serialize())
 

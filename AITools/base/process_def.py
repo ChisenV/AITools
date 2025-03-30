@@ -1,11 +1,15 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Union
 
-from AITools import Config
+__all__ = [
+    'BaseProcessor', 
+    'BasePreProcessor', 
+    'BasePostProcessor'
+]
 
 
 class BaseProcessor(ABC):
-    def __init__(self, config: Union[Config, Dict[str, Any]], *args, **kwargs):
+    def __init__(self, config: Union[Dict[str, Any]], *args, **kwargs):
         self.config = config
 
     @abstractmethod
