@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<annotation>
+	<folder>Images</folder>
+	<filename>ID27417(63.44).bmp</filename>
+	<path>E:\soft\windows_v1.8.1\TODO\321Pics\train\Images\ID27417(63.44).bmp</path>
+	<source>
+		<database>Unknown</database>
+	</source>
+	<size>
+		<width>218</width>
+		<height>228</height>
+		<depth>3</depth>
+	</size>
+	<segmented>0</segmented>
+	<object>
+		<name>Pin</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>78</xmin>
+			<ymin>83</ymin>
+			<xmax>107</xmax>
+			<ymax>115</ymax>
+		</bndbox>
+	</object>
+</annotation>

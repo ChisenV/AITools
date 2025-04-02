@@ -1,7 +1,7 @@
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, List
 
 import numpy as np
 import tensorrt as trt
@@ -10,6 +10,10 @@ from cuda.bindings import driver
 from . import check_cuda_errors
 from AITools.core.config import Config
 from AITools.base.model_def import BaseModelHandler
+
+__all__ = [
+ "TensorRTModel"
+]
 
 _TENSORRT_MODEL_SUPPORT_SUFFIX = [".trt", ".engine", ".onnx"]
 _TENSORRT_ONNX_SUPPORT_SUFFIX = [".onnx"]
@@ -34,30 +38,25 @@ class TensorRTModel(BaseModelHandler):
             **kwargs
     ):
         super().__init__(model_path=model_path, config=config, **kwargs)
-
-        self.logger = self.config.get("logger", trt.Logger(trt.Logger.ERROR))
-        self.use_fp16 = self.config.get("use_fp16", _TENSORRT_CONFIG_DEFAULT_USE_FP16)
-        # The explicit batch mode means that when the network is created,
-        # the batch size of the input and output tensors of the network is
-        # explicitly specified. This can improve the efficiency of the
-        # network, but you need to manually set the batch size.
-        self.explicit_batch = self.config.get("explicit_batch", _TENSORRT_CONFIG_DEFAULT_EXPLICIT_BATCH)
-        self.batch_config = self.config.get("batch_config", _TENSORRT_CONFIG_DEFAULT_BATCH_CONFIG)
-
-        self.model_file = self._resolve_model_file()
-        self.need_build = self.model_file.suffix in _TENSORRT_ONNX_SUPPORT_SUFFIX
-        self.model_info = OrderedDict()
+        self._model_file = self._resolve_model_file()
+        self._need_build = self._model_file.suffix in _TENSORRT_ONNX_SUPPORT_SUFFIX
+        self._model_info = OrderedDict()
         # I/O cache
-        self.buffers = OrderedDict()
+        self._buffers = OrderedDict()
 
         # TensorRT
-        self.builder = None
-        self.network = None
-        self.config = None
-        self.profile = None
-        self.engine = None
-        self.context = None
-        self.runtime = None
+        self.trt_logger = self.config.get("logger", trt.Logger(trt.Logger.ERROR))
+        self.trt_builder = None
+        self.trt_network = None
+        self.trt_config = None
+        self.trt_profile = None
+        self.trt_engine = None
+        self.trt_context = None
+        self.trt_runtime = None
+
+    @property
+    def info(self):
+        return self._model_info
 
     def _resolve_model_file(self) -> Path:
         """Determine the model file path, preferentially selecting ".trt", ".engine" or ".onnx" files"""
@@ -71,59 +70,68 @@ class TensorRTModel(BaseModelHandler):
         else:
             raise FileNotFoundError(f"No valid model file found in {self.model_path}")
 
-    def load(self):
+    def load(self, *args, **kwargs):
         """Load or build the TensorRT engine to initialize the execution context"""
-        if self.need_build:
+        if self._need_build:
             self.build_engine()  # Build the engine from ONNX
             self.dump()  # Save the serialized engine
         else:
             self.load_engine()  # Load the serialized engine directly
 
         # Initializes the execution context
-        self.context = self.engine.create_execution_context()
+        self.trt_context = self.trt_engine.create_execution_context()
 
         # Initializes the memory cache
         self._setup_buffers()
         self._initialized = True
 
-    def run(self, data):
-        return self.infer(input_data=data)
+        return self
 
-    def destroy(self):
-        if self.context:
-            self.context.__del__()
-        if self.engine:
-            self.engine.__del__()
-        if self.runtime:
-            self.runtime.__del__()
+    def run(self, data, **kwargs):
+        return self.infer(input_data=data, **kwargs)
+
+    def destroy(self, *args, **kwargs):
+        if self.trt_context:
+            self.trt_context.__del__()
+        if self.trt_engine:
+            self.trt_engine.__del__()
+        if self.trt_runtime:
+            self.trt_runtime.__del__()
 
         # Free GPU memory
-        for _, (hostPtr, devicePtr, _, _) in self.buffers.items():
-            check_cuda_errors(driver.cuMemFreeHost(hostPtr))
-            check_cuda_errors(driver.cuMemFree(devicePtr))
+        for _, (host_buffer, device_buffer, _, _) in self._buffers.items():
+            if isinstance(host_buffer, np.ndarray):
+                check_cuda_errors(driver.cuMemHostUnregister(host_buffer.ctypes.data))
+                del host_buffer
+            else:
+                check_cuda_errors(driver.cuMemFreeHost(host_buffer))
+            check_cuda_errors(driver.cuMemFree(device_buffer))
 
         self._initialized = False
 
     def build_engine(self, batch_config: Union[list, tuple] = None):
         """Build the TensorRT engine from ONNX"""
-        min_batch, opt_batch, max_batch = batch_config or self.batch_config
-        self.builder = trt.Builder(self.logger)
-        self.network = self.builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        min_batch, opt_batch, max_batch = (batch_config
+                                           or
+                                           self.config.get("batch_config", _TENSORRT_CONFIG_DEFAULT_BATCH_CONFIG))
+        self.trt_builder = trt.Builder(self.trt_logger)
+        self.trt_network = self.trt_builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
 
         # Analyze the ONNX model
-        parser = trt.OnnxParser(self.network, self.logger)
-        if not parser.parse_from_file(self.model_file):
+        parser = trt.OnnxParser(self.trt_network, self.trt_logger)
+        if not parser.parse_from_file(str(self._model_file)):
             raise RuntimeError(f"Failed to parse ONNX file: {[e.description for e in parser.errors]}")
 
         # Configure build parameters
-        self.config = self.builder.create_builder_config()
-        if self.use_fp16 and self.builder.platform_has_fast_fp16:
-            self.config.set_flag(trt.BuilderFlag.FP16)
+        use_fp16 = self.config.get("use_fp16", _TENSORRT_CONFIG_DEFAULT_USE_FP16)
+        self.trt_config = self.trt_builder.create_builder_config()
+        if use_fp16 and self.trt_builder.platform_has_fast_fp16:
+            self.trt_config.set_flag(trt.BuilderFlag.FP16)
 
         # Set the optimization profile
-        self.profile = self.builder.create_optimization_profile()
-        for i in range(self.network.num_inputs):
-            input_tensor = self.network.get_input(i)
+        self.trt_profile = self.trt_builder.create_optimization_profile()
+        for i in range(self.trt_network.num_inputs):
+            input_tensor = self.trt_network.get_input(i)
             input_name = input_tensor.name
 
             shape = list(input_tensor.shape)
@@ -131,7 +139,11 @@ class TensorRTModel(BaseModelHandler):
             opt_shape = list(shape)
             max_shape = list(shape)
 
-            if self.explicit_batch:
+            # The explicit batch mode means that when the network is created,
+            # the batch size of the input and output tensors of the network is
+            # explicitly specified. This can improve the efficiency of the
+            # network, but you need to manually set the batch size.
+            if self.config.get("explicit_batch", _TENSORRT_CONFIG_DEFAULT_EXPLICIT_BATCH):
                 if shape[0] == -1:
                     min_shape[0] = min_batch
                     opt_shape[0] = opt_batch
@@ -143,51 +155,51 @@ class TensorRTModel(BaseModelHandler):
             else:
                 raise ValueError("Explicit batch mode is required for building TensorRT engine building from onnx.")
 
-            self.profile.set_shape(input_name, min=tuple(min_shape), opt=tuple(opt_shape), max=tuple(max_shape))
-        self.config.add_optimization_profile(self.profile)
+            self.trt_profile.set_shape(input_name, min=tuple(min_shape), opt=tuple(opt_shape), max=tuple(max_shape))
+        self.trt_config.add_optimization_profile(self.trt_profile)
 
         # Build a serialization engine
-        self.engine = self.builder.build_engine(self.network, self.config)
-        if self.engine is None:
+        self.trt_engine = self.trt_builder.build_engine(self.trt_network, self.trt_config)
+        if self.trt_engine is None:
             raise RuntimeError("Failed to build TensorRT engine")
 
     def dump(self, path: Path = None):
         """Save the serialized engine file"""
         if path is None:
-            path = self.model_file.with_suffix(_TENSORRT_ENGINE_DEFAULT_SUFFIX)
+            path = self._model_file.with_suffix(_TENSORRT_ENGINE_DEFAULT_SUFFIX)
         if path.suffix not in _TENSORRT_MODEL_SUPPORT_SUFFIX:
             if path.is_dir():
                 path = path / _TENSORRT_ENGINE_DEFAULT_NAME
             else:
                 path = path.with_suffix(_TENSORRT_ENGINE_DEFAULT_SUFFIX)
         with open(path, "wb") as f:
-            f.write(self.engine.serialize())
+            f.write(self.trt_engine.serialize())
 
     def load_engine(self, path: Path = None):
         """Load the pre-built TensorRT engine"""
         if path is None:
-            path = self.model_file
+            path = self._model_file
         with open(path, "rb") as f:
-            self.runtime = self.runtime if self.runtime else trt.Runtime(self.logger)
-            self.engine = self.runtime.deserialize_cuda_engine(f.read())
+            self.trt_runtime = self.trt_runtime if self.trt_runtime else trt.Runtime(self.trt_logger)
+            self.trt_engine = self.trt_runtime.deserialize_cuda_engine(f.read())
 
     def _setup_buffers(self):
         """Allocate GPU/CPU memory for input and output"""
-        for idx in range(self.engine.num_io_tensors):
-            name = self.engine.get_tensor_name(idx)
-            dtype = self.engine.get_tensor_dtype(name)
-            shape = self.engine.get_tensor_shape(name)
-            is_input = self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
+        for idx in range(self.trt_engine.num_io_tensors):
+            name = self.trt_engine.get_tensor_name(idx)
+            dtype = self.trt_engine.get_tensor_dtype(name)
+            shape = self.trt_engine.get_tensor_shape(name)
+            is_input = self.trt_engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
 
             # Allocate CPU memory and GPU memory
             n_byte = trt.volume(shape) * dtype.itemsize
-            cuda_err, host_buffer = driver.cuMemAllocHost(n_byte)
-            check_cuda_errors(cuda_err)
-            cuda_err, device_buffer = driver.cuMemAlloc(n_byte)
-            check_cuda_errors(cuda_err)
+            # host_buffer = check_cuda_errors(driver.cuMemAllocHost(n_byte))
+            host_buffer = np.empty(shape, dtype=self.nptype(dtype))
+            check_cuda_errors(driver.cuMemHostRegister(host_buffer.ctypes.data, n_byte, 0))
+            device_buffer = check_cuda_errors(driver.cuMemAlloc(n_byte))
 
             if is_input:
-                self.model_info.setdefault("inputs", []).append({
+                self._model_info.setdefault("inputs", []).append({
                     "name": name,
                     "dtype": self.nptype(dtype),
                     "shape": shape,
@@ -196,7 +208,7 @@ class TensorRTModel(BaseModelHandler):
                     "size": n_byte
                 })
             else:
-                self.model_info.setdefault("outputs", []).append({
+                self._model_info.setdefault("outputs", []).append({
                     "name": name,
                     "dtype": self.nptype(dtype),
                     "shape": shape,
@@ -204,34 +216,43 @@ class TensorRTModel(BaseModelHandler):
                     "device": device_buffer,
                     "size": n_byte
                 })
-            self.buffers[name] = [host_buffer, device_buffer, n_byte, is_input]
-            self.context.set_tensor_address(name, device_buffer)
+            self._buffers[name] = [host_buffer, device_buffer, n_byte, is_input]
+            self.trt_context.set_tensor_address(name, device_buffer)
 
-    def infer(self, input_data: Dict[str, np.ndarray] = None) -> dict[Any, Any]:
-        # Prepare work before inference
-        if input_data is None:
-            input_data = {}
+    def infer(self, input_data: Dict[str, np.ndarray] = None, **kwargs) -> dict[Any, Any]:
+        if not self.is_ready:
+            raise RuntimeError("The TensorRT engine is not ready for inference")
 
         # Copy the input data to the GPU
-        for input_info in self.model_info["inputs"]:
+        for input_info in self._model_info["inputs"]:
             if input_info["name"] not in input_data:
                 raise ValueError(f"Missing input data for input tensor {input_info['name']}")
-            np.copyto(input_info["host"].ctype.data, input_data[input_info["name"]].ravel())
-            check_cuda_errors(driver.cuMemcpyHtoD(
-                input_info["device"],
-                input_info["host"],
-                input_info["size"]
-            ))
+            if isinstance(input_info["host"], np.ndarray):
+                np.copyto(input_info["host"], input_data[input_info["name"]])
+                check_cuda_errors(driver.cuMemcpyHtoD(
+                    input_info["device"], input_info["host"].ctypes.data, input_info["size"]
+                ))
+            else:
+                # TODO Find a way to copy data to the GPU when input_info["host"] is not a numpy array
+                # np.copyto(input_info["host"], input_data[input_info["name"]])
+                check_cuda_errors(driver.cuMemcpyHtoD(
+                    input_info["device"], input_info["host"], input_info["size"]
+                ))
+            self.run_hooks("on_trt_input_memcpy_after", input_info=input_info, **kwargs)
 
-        self.context.execute_async_v3(0)
+        self.run_hooks("on_trt_infer_before", **kwargs)
+        self.trt_context.execute_async_v3(0)
+        self.run_hooks("on_trt_infer_after", **kwargs)
 
         outputs = {}
-        for output_info in self.model_info["outputs"]:
+        for output_info in self._model_info["outputs"]:
             check_cuda_errors(driver.cuMemcpyDtoH(
-                output_info["host"],
+                output_info["host"] if not isinstance(output_info["host"], np.ndarray)
+                else output_info["host"].ctypes.data,
                 output_info["device"],
                 output_info["size"]
             ))
+            self.run_hooks("on_trt_output_memcpy_after", output_info=output_info, **kwargs)
             outputs[output_info["name"]] = output_info["host"].copy()
         return outputs
 

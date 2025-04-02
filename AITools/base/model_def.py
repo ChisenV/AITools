@@ -6,7 +6,7 @@ __all__ = [
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Dict, Union, List, Callable
 from enum import Enum
 
 
@@ -34,6 +34,8 @@ class BaseModelHandler(ABC):
             **kwargs
     ):
         self.model_path = Path(model_path)
+        self.hooks: Dict[str, List[Callable]] = kwargs.pop("hooks", {})
+        self.hooks.update(config.get("hooks", {}))
         self.config = config
         self.config.update(kwargs)
         self._initialized = False
@@ -62,7 +64,15 @@ class BaseModelHandler(ABC):
             return self.run(*args, **kwargs)
 
     def __enter__(self, *args, **kwargs):
-        self.load(*args, **kwargs)
+        return self.load(*args, **kwargs)
 
     def __exit__(self, *args, **kwargs):
         self.destroy(*args, **kwargs)
+
+    def run_hooks(self, names: Union[str, List[str]], *args, **kwargs):
+        """Call hooks by name"""
+        if isinstance(names, str):
+            names = [names]
+        for name in names:
+            for hook in self.hooks.get(name, []):
+                hook(*args, **kwargs)

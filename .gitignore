@@ -1,7 +1,7 @@
 __pycache__/
 .idea/
 dataset/
-tests/
+#tests/
 logger/
 main/
 
@@ -13,7 +13,6 @@ models*/
 *.pt
 *.pth
 
-#tests/
 events.out.tfevents.*
 
 third_party/
@@ -22,3 +21,6 @@ thirdparty/
 
 build
 dist
+
+.benchmarks/
+logs/
