@@ -9,7 +9,8 @@ pytest-benchmark>=3.4.1
 pyclibrary>=0.1.7
 numpy>=1.21.6  # onnxruntime required
 pillow>=10.3.0
-cuda-python==12.8.0
+cuda-python>=11.8.6
+#cuda-python==12.8.0  # recommended version
 ### cuda-python 11.8.6
 # See: https://github.com/NVIDIA/cuda-python/
 #      https://github.com/NVIDIA/cuda-python/archive/refs/tags/v11.8.6.zip

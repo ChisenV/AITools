@@ -98,7 +98,8 @@ class TensorRTModel(BaseModelHandler):
             self.runtime.__del__()
 
         # Free GPU memory
-        for _, (_, devicePtr, _, _) in self.buffers.items():
+        for _, (hostPtr, devicePtr, _, _) in self.buffers.items():
+            check_cuda_errors(driver.cuMemFreeHost(hostPtr))
             check_cuda_errors(driver.cuMemFree(devicePtr))
 
         self._initialized = False
@@ -145,7 +146,7 @@ class TensorRTModel(BaseModelHandler):
             self.profile.set_shape(input_name, min=tuple(min_shape), opt=tuple(opt_shape), max=tuple(max_shape))
         self.config.add_optimization_profile(self.profile)
 
-        # 构建序列化引擎
+        # Build a serialization engine
         self.engine = self.builder.build_engine(self.network, self.config)
         if self.engine is None:
             raise RuntimeError("Failed to build TensorRT engine")
@@ -167,8 +168,8 @@ class TensorRTModel(BaseModelHandler):
         if path is None:
             path = self.model_file
         with open(path, "rb") as f:
-            runtime = trt.Runtime(self.logger)
-            self.engine = runtime.deserialize_cuda_engine(f.read())
+            self.runtime = self.runtime if self.runtime else trt.Runtime(self.logger)
+            self.engine = self.runtime.deserialize_cuda_engine(f.read())
 
     def _setup_buffers(self):
         """Allocate GPU/CPU memory for input and output"""
@@ -178,11 +179,12 @@ class TensorRTModel(BaseModelHandler):
             shape = self.engine.get_tensor_shape(name)
             is_input = self.engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT
 
-            # Allocate GPU memory and CPU memory
+            # Allocate CPU memory and GPU memory
             n_byte = trt.volume(shape) * dtype.itemsize
+            cuda_err, host_buffer = driver.cuMemAllocHost(n_byte)
+            check_cuda_errors(cuda_err)
             cuda_err, device_buffer = driver.cuMemAlloc(n_byte)
             check_cuda_errors(cuda_err)
-            host_buffer = np.empty(shape, dtype=self.nptype(dtype))
 
             if is_input:
                 self.model_info.setdefault("inputs", []).append({
@@ -202,7 +204,7 @@ class TensorRTModel(BaseModelHandler):
                     "device": device_buffer,
                     "size": n_byte
                 })
-            self.buffers[name] = [host_buffer.ctypes.data, device_buffer, n_byte, is_input]
+            self.buffers[name] = [host_buffer, device_buffer, n_byte, is_input]
             self.context.set_tensor_address(name, device_buffer)
 
     def infer(self, input_data: Dict[str, np.ndarray] = None) -> dict[Any, Any]:
@@ -217,7 +219,7 @@ class TensorRTModel(BaseModelHandler):
             np.copyto(input_info["host"].ctype.data, input_data[input_info["name"]].ravel())
             check_cuda_errors(driver.cuMemcpyHtoD(
                 input_info["device"],
-                input_info["host"].ctype.data,
+                input_info["host"],
                 input_info["size"]
             ))
 
@@ -226,7 +228,7 @@ class TensorRTModel(BaseModelHandler):
         outputs = {}
         for output_info in self.model_info["outputs"]:
             check_cuda_errors(driver.cuMemcpyDtoH(
-                output_info["host"].ctype.data,
+                output_info["host"],
                 output_info["device"],
                 output_info["size"]
             ))
