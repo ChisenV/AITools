@@ -1,5 +1,6 @@
 import ctypes
 
+import numpy as np
 from cuda.bindings import driver, nvrtc, runtime as cudart
 from cuda.bindings.driver import CUresult
 
@@ -34,23 +35,23 @@ def check_cuda_errors(result):
         return result[1:]
 
 
-def int_address_to_ndarray(addr, dtype, shape):
+def int_address_to_ndarray(addr, dtype, shape) -> np.ndarray:
     """
-    将整数地址封装为NumPy数组
+    Encapsulate integer addresses as numpy arrays
 
-    参数:
-        addr (int): 内存地址（如通过`id(obj)`或C扩展获取的地址）
-        dtype (np.dtype): 数据类型（如np.float32, np.int64）
-        shape (tuple): 数组形状
+    Args:
+        addr (int): Memory address (such as the address obtained by id(obj) or C extension)
+        dtype (np.dtype): Data type (e.g. np.float32, np.int64)
+        shape (tuple): Array shape
 
-    返回:
-        np.ndarray: 封装后的数组（共享内存，无数据拷贝）
+    Return:
+        np.ndarray: Encapsulated array (shared memory, no data copies)
     """
     ctype = np.ctypeslib.as_ctypes_type(dtype)
     ptr_type = ctypes.POINTER(ctype * np.prod(shape))
-    # 将整数地址转换为指针
+    # Converts integer addresses to Pointers
     buffer = ctypes.cast(addr, ptr_type)
-    # 转换为NumPy数组（共享内存）
+    # Convert to NumPy array (shared memory)
     arr = np.ctypeslib.as_array(buffer.contents).reshape(shape)
 
     return arr
@@ -63,4 +64,3 @@ try:
     from .onnx import *
 except ImportError:
     pass
-
