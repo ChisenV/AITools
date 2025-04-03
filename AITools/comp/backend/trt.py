@@ -85,6 +85,8 @@ class TensorRTModel(BaseModelHandler):
         self._setup_buffers()
         self._initialized = True
 
+        self.run_hooks("on_model_load_finished", *args, **kwargs)
+
         return self
 
     def run(self, data, **kwargs):
@@ -231,7 +233,7 @@ class TensorRTModel(BaseModelHandler):
                 input_info["shape"], input_info["size"]
             host_buffer, device_buffer = input_info["host"], input_info["device"]
             if isinstance(host_buffer, np.ndarray):
-                np.copyto(host_buffer, input_data[name])
+                np.copyto(host_buffer, input_data[name])  # TODO move this memory copy operation to preprocess stage
                 check_cuda_errors(driver.cuMemcpyHtoD(device_buffer, host_buffer.ctypes.data, n_byte))
             elif isinstance(host_buffer, int):
                 np.copyto(int_address_to_ndarray(host_buffer, dtype, shape), input_data[name])
@@ -255,6 +257,7 @@ class TensorRTModel(BaseModelHandler):
                 n_byte
             ))
             self.run_hooks("on_trt_output_memcpy_after", output_info=output_info, **kwargs)
+            # TODO move this memory copy operation to postprocess stage
             outputs[name] = host_buffer.copy() if isinstance(host_buffer, np.ndarray) \
                 else int_address_to_ndarray(host_buffer, dtype, shape).copy()
         return outputs
