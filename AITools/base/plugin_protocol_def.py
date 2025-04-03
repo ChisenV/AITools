@@ -25,9 +25,10 @@ class ParserPlugin(Protocol):
 
 
 @runtime_checkable
-class ModelHandlerPlugin(Protocol):
+class ModelHandlerPlugin(Protocol):  # TODO: maybe can inherit from `ParserPlugin` and `ProcessorPlugin`
     """Model handler plugin protocol"""
 
+    # TODO: Remove this method after the framework is unified
     def supported_framework_name(self) -> List[str]:
         """The name of the framework that the model handler supports"""
         ...
@@ -44,11 +45,12 @@ class ModelHandlerPlugin(Protocol):
         """Release the resources occupied by the model（如显存、线程池）"""
         ...
 
-    def is_ready(self) -> bool:
+    def is_ready(self) -> bool:  # TODO: Remove this method after the framework is unified
         """Check if the model is ready to run"""
         ...
 
 
+# TODO: Refactor the processor plugin protocol, maybe rename it to 'Executable'
 @runtime_checkable
 class ProcessorPlugin(Protocol):
     def run(self, *args, **kwargs) -> Any:

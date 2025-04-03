@@ -12,7 +12,7 @@ from AITools.core.config import Config
 from AITools.base.model_def import BaseModelHandler
 
 __all__ = [
- "TensorRTModel"
+    "TensorRTModel"
 ]
 
 _TENSORRT_MODEL_SUPPORT_SUFFIX = [".trt", ".engine", ".onnx"]

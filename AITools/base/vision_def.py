@@ -1,7 +1,7 @@
 import io
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Union, List, Optional, Tuple, Dict, Any, TypeVar
+from typing import Union, List, Optional, Tuple, Dict, Any
 from PIL import Image
 
 import numpy as np

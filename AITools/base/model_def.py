@@ -1,13 +1,13 @@
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any, Dict, Union, List, Callable
+from enum import Enum
+
 __all__ = [
     "ModelType",
     "FrameworkType",
     "BaseModelHandler",
 ]
-
-from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Any, Dict, Union, List, Callable
-from enum import Enum
 
 
 class ModelType(Enum):

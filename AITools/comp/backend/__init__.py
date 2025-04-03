@@ -5,7 +5,8 @@ from cuda.bindings import driver, nvrtc, runtime as cudart
 from cuda.bindings.driver import CUresult
 
 __all__ = [
-    'TensorRTModel',
+    "TensorRTModel",
+    "check_cuda_errors",
 ]
 
 

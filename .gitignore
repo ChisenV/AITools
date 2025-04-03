@@ -25,3 +25,7 @@ dist
 .benchmarks/
 logs/
 .pytest_cache/
+
+tests/*.jpg
+tests/*.png
+tests/*.bmp
