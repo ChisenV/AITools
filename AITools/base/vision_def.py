@@ -1,25 +1,12 @@
 import io
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Union, List, Optional, Tuple, Dict, Any
+from typing import Union, List, Optional, Tuple, Dict, Any, TypeVar
 from PIL import Image
 
 import numpy as np
 
-
-class _FakeTorch:
-    class Tensor:
-        pass
-
-    @staticmethod
-    def from_numpy(*args, **kwargs):
-        raise ImportError("PyTorch is not installed. Please install it to use this feature.")
-
-
-try:
-    import torch
-except ImportError:
-    torch = _FakeTorch
+from . import torch
 
 __all__ = [
     "IMG_FORMATS", 
@@ -78,6 +65,7 @@ class ImageData:
     path: str
     format: str = "RGB"  # 颜色通道格式
     id: Optional[str] = None  # 唯一标识符
+    input_name: Optional[str] = None  # 输入节点名称
 
     # ---------- 类型元数据（自动推断） ----------
     _type: ImageType = field(init=False)
@@ -178,8 +166,8 @@ class OCRLabel:
     char_boxes: List[BoundingBox]                 # 字符级边界框
     text_box: BoundingBox                         # 文本区域边界框
     text_direction: int                           # 暂定文本旋转角度
-    box_confidence: Optional[float] = None        # 预测时使用
     text_confidence: Optional[float] = None       # 预测时使用
+    box_confidence: Optional[float] = None        # 预测时使用
     direction_confidence: Optional[float] = None  # 预测时使用
 
 
@@ -207,7 +195,7 @@ class InstanceSegmentationLabel:
 
 
 @dataclass
-class DatasetItem:
+class VisionDataItem:
     """数据集返回的原子单元"""
     image: ImageData
     labels: List[Union[
@@ -242,7 +230,7 @@ def parse_yolo_label(image_path, label_path):
                 normalized=True
             )
             labels.append(DetectionLabel(bbox=bbox, class_id=int(class_id)))
-        return DatasetItem(
+        return VisionDataItem(
             image=ImageData(data=..., path=image_path),
             labels=labels
         )
@@ -260,7 +248,7 @@ def coco_to_protocol(coco_ann, image_info):
             class_id=ann['category_id'],
             is_crowd=ann['iscrowd']
         ))
-    return DatasetItem(
+    return VisionDataItem(
         image=ImageData(
             data=...,
             path=image_info['file_name'],
@@ -271,7 +259,7 @@ def coco_to_protocol(coco_ann, image_info):
 
 
 def parse_voc_segmentation(image_path, mask_path):
-    return DatasetItem(
+    return VisionDataItem(
         image=ImageData(data=..., path=image_path),
         labels=[
             SegmentationLabel(mask=...)

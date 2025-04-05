@@ -110,6 +110,7 @@ class TensorRTModel(BaseModelHandler):
             check_cuda_errors(driver.cuMemFree(device_buffer))
 
         self._initialized = False
+        self.run_hooks("on_model_destroy_finished", *args, **kwargs)
 
     def build_engine(self, batch_config: Union[list, tuple] = None):
         """Build the TensorRT engine from ONNX"""
