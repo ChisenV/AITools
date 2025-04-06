@@ -21,6 +21,7 @@ import numpy as np
 from AITools.base.dataset_def import IterableDataset, T_co
 from AITools.base.vision_def import IMG_FORMATS
 from AITools.core import manager
+from AITools.utils.functions import parse_ppocr_label
 
 __all__ = [
     "OCRDatasetV2",
@@ -43,6 +44,18 @@ class OCRDatasetV2(IterableDataset):
             label_file="Label.txt",
             **kwargs
     ):
+        """
+        Args:
+            root (str or list of str): The root directory of the dataset.
+            with_image (bool): Whether to load the image.
+            with_label (bool): Whether to load the label.
+            read_image (bool): Whether to read the image.
+            transformers (list of callable): The transformers to apply to the data.
+            subject_to (str): The subject to which the dataset is subject to, must be 'image' or 'label'.
+            Only useful if with_label is true.
+            label_file (str): The label file name.
+
+        """
         super().__init__()
         self._image_map = {}
         self._label_map = {}
@@ -59,15 +72,12 @@ class OCRDatasetV2(IterableDataset):
         self._dir_basename_map = defaultdict(set)  # New: Mapping directory to file name
         if subject_to not in ["image", "label"]:
             raise ValueError("subject_to must be 'image' or 'label'.")
-        if subject_to == "label" and not with_label:
-            raise ValueError("subject_to is 'label' but with_label is False.")
         self.subject_to = subject_to
 
         self._parser_root(root, with_image, with_label, label_file)
         _start = len(self._image_map)
         for idx, _image_root in self._roots_map.items():
-            _label_path = self._lab_files.get(idx, None)
-            self._parse(_image_root, _label_path, _start, idx)
+            self._parse(_image_root, idx, _start)
             _end = len(self._image_map)
             for i in range(_start, _end):
                 self._place_map[i] = idx
@@ -112,6 +122,77 @@ class OCRDatasetV2(IterableDataset):
         else:
             raise ValueError("The case of only labels without images is not supported.")
 
+    def _parse(self, image_root, root_idx=None, offset=0, label_file_encoding='utf-8'):
+        abs_image_root = os.path.abspath(os.path.normpath(image_root))
+        if not os.path.isdir(abs_image_root):
+            raise ValueError(f"image_path must be a directory: {abs_image_root}.")
+        if not os.path.exists(abs_image_root):
+            raise FileNotFoundError(f"Image path {abs_image_root} does not exist.")
+
+        if abs_image_root not in self._root_dirs:
+            if root_idx is None:
+                root_idx = len(self._roots_map)
+                self._roots_map[root_idx] = abs_image_root
+            self._root_dirs.add(abs_image_root)
+            self._dir_basename_map[abs_image_root] = set()
+        else:
+            root_idx = [k for k, v in self._roots_map.items() if v == abs_image_root][0]
+
+        label_file = self._lab_files.get(root_idx, None)
+        data = {} if label_file is None else self._parse_file(label_file, encoding=label_file_encoding)
+        if self.subject_to == "label" and self.with_label:
+            for i, (im, la) in enumerate(data.items()):
+                idx = offset + i
+                img_basename = os.path.basename(im)
+                self._image_map[idx] = img_basename
+                self._place_map[idx] = root_idx
+                self._dir_basename_map[abs_image_root].add(img_basename)
+                self._label_map[idx] = la
+        else:
+            valid_images = [p for p in os.listdir(abs_image_root) if p.endswith(tuple(IMG_FORMATS))]
+            for i, im in enumerate(valid_images):
+                idx = offset + i
+                self._image_map[idx] = im
+                self._place_map[idx] = root_idx
+                self._dir_basename_map[abs_image_root].add(im)
+                if self.with_label:
+                    self._label_map[idx] = data.get(os.path.join(abs_image_root, im), [])
+
+    def _parse_label(self, contents):
+        return json.loads(self.fmt_label_loads(contents))
+
+    def _parse_file(self, file, encoding='utf-8'):
+        """
+        Regulations：The path in the annotated file must be an absolute path or a
+        relative path starting with the folder name of the current annotated file
+        """
+        data = {}
+        file_dirname = os.path.dirname(file)
+        with open(file, 'r', encoding=encoding) as f:
+            for i, line in enumerate(f):
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split('\t')
+                if len(parts) < 2:
+                    continue
+                p, a = os.path.normpath(parts[0]), parts[1]
+                image_name = p if os.path.isabs(p) else os.path.join(file_dirname, *p.split(os.sep)[1:])
+                data[image_name] = self._parse_label(a)
+        return data
+
+    def fmt_label_dumps(self, label):
+        return (str(label).replace("'", '"')
+                .replace('"difficult": 0', '"difficult": false')
+                .replace('"difficult": 1', '"difficult": true'))
+
+    def fmt_label_loads(self, label: str):
+        return (label.strip("\n").strip("\r")
+                .replace('"difficult": false', '"difficult": 0')
+                .replace('"difficult": true', '"difficult": 1')
+                .replace('"difficult": False', '"difficult": 0')
+                .replace('"difficult": True', '"difficult": 1'))
+
     def __iter__(self) -> Iterator[T_co]:
         self._index = self._begin
         return self
@@ -135,18 +216,6 @@ class OCRDatasetV2(IterableDataset):
         - dataset[1:10:2]   -> Slicing generates a new data set
         - dataset[[1,3,5]]  -> The list index generates a new data set
 
-        Old:
-        ```
-            def __getitem__(self, index):
-                if self._begin <= index < len(self):
-                    # TO DO: if with_label is False, return tuple(image path, None)
-                    return ((os.path.join(self._roots_map[self._place_map[index]], self._image_map[index]),
-                             self._label_map[index])
-                            if self.with_label
-                            else os.path.join(self._roots_map[self._place_map[index]], self._image_map[index]))
-                else:
-                    raise IndexError(f"Index {index} is not in the range.")
-        ```
         """
         if isinstance(index, slice):
             return self.subset(self._parse_slice(index))
@@ -155,7 +224,7 @@ class OCRDatasetV2(IterableDataset):
             return self.subset(self._validate_indices(index))
 
         try:
-            return self._get_single_item(index)
+            return self._get_data_item(index) if self._read_image else self._get_single_item(index)
         except KeyError:
             raise IndexError(f"index {index} out of dataset range [0, {len(self) -1}]")
 
@@ -166,15 +235,15 @@ class OCRDatasetV2(IterableDataset):
             img_name = self._image_map[index]
             full_path = os.path.join(root_dir, img_name)
 
-            if self._read_image:
-                # TODO: TO define a dataset return protocol(or format).
-                pass
-            else:
-                if self.with_label:
-                    return full_path, self._label_map.get(index, None)
-                return full_path
+            if self.with_label:
+                return full_path, self._label_map.get(index, None)
+            return full_path, None
 
         raise IndexError(f"index {index} is out of the valid range")
+
+    def _get_data_item(self, index):
+        image_path, anno_label = self._get_single_item(index)
+        return parse_ppocr_label(image_path, anno_label)
 
     def _parse_slice(self, s: slice) -> list:
         """Converts slice objects to a list of valid indexes"""
@@ -188,40 +257,37 @@ class OCRDatasetV2(IterableDataset):
 
     def subset(self, indices: list) -> "OCRDatasetV2":
         """Create a subdataset based on the index list"""
-        # 创建新实例但跳过初始化流程
+        # Create a new instance but skip the initialization process
         new_dataset = self.__class__.__new__(self.__class__)
-        # 复制必要属性
         new_dataset.__dict__ = copy.deepcopy(self.__dict__)
 
-        # 更新核心数据映射
+        # Update the core data map
         new_dataset._image_map = {}
         new_dataset._place_map = {}
         new_dataset._label_map = {} if self.with_label else None
         new_dataset.aug_map = {}
 
-        # 填充筛选后的数据
+        # Populate the filtered data
         for new_idx, old_idx in enumerate(indices):
-            # 处理图像路径
             new_dataset._image_map[new_idx] = self._image_map[old_idx]
             new_dataset._place_map[new_idx] = self._place_map[old_idx]
-            # 处理标签
             if self.with_label:
                 new_dataset._label_map[new_idx] = self._label_map.get(old_idx, {})
 
-        # 更新目录映射
+        # Update directory mapping
         new_dataset._update_directory_mappings()
         return new_dataset
 
     def _update_directory_mappings(self):
         """更新子数据集的目录映射关系"""
-        # 重建roots_map
+        # rebuild roots_map
         active_roots = set(self._place_map.values())
         self._roots_map = {rid: path for rid, path in self._roots_map.items() if rid in active_roots}
 
-        # 重建root_dirs
+        # rebuild root_dirs
         self._root_dirs = {path for path in self._roots_map.values()}
 
-        # 重建dir_basename_map
+        # rebuild dir_basename_map
         self._dir_basename_map = defaultdict(set)
         for idx in self._image_map:
             root_id = self._place_map[idx]
@@ -307,41 +373,38 @@ class OCRDatasetV2(IterableDataset):
         :param other: Another data set to merge
         :return: The new data set after the merger
         """
-        # ==================== 参数校验 ====================
         if not isinstance(other, OCRDatasetV2):
             raise TypeError("Only OCRDatasetV2 objects can be merged.")
 
         if self.with_image != other.with_image or self.with_label != other.with_label:
             raise ValueError("Data set configuration incompatibility (with_image/with_label inconsistency).")
 
-        # ==================== 创建副本 ====================
         merged_dataset = self.copy()
 
-        # ==================== 合并根目录 ====================
         # Create a mapping between the directory path and root_id (new root_id after merging)
         root_path_to_id = {v: k for k, v in merged_dataset._roots_map.items()}
 
-        # 合并other的根目录
+        # Merge the root directory of 'other'
         for root_id, root_path in other._roots_map.items():
             if root_path not in root_path_to_id:
-                # 添加新根目录
+                # Add a new root directory
                 new_root_id = len(merged_dataset._roots_map)
                 merged_dataset._roots_map[new_root_id] = root_path
                 merged_dataset._root_dirs.add(root_path)
                 merged_dataset._dir_basename_map[root_path] = set()
                 root_path_to_id[root_path] = new_root_id
 
-        # ==================== 合并数据项 ====================
-        # 建立路径快速查找表 {abs_path: index}
+        # Merge data item
+        # Create a quick path lookup table {abs path: index}
         existing_paths = {
             os.path.join(merged_dataset._roots_map[rid], img): idx
             for idx, (rid, img) in enumerate(zip(merged_dataset._place_map.values(),
                                                  merged_dataset._image_map.values()))
         }
 
-        # 遍历other数据集
+        # Iterate over the 'other' dataset, retrieving data items
         for other_idx in range(len(other)):
-            # 获取other的数据项
+            #
             other_item = other[other_idx]
             abs_path = os.path.abspath(
                 other_item[0] if isinstance(other_item, tuple) else other_item
@@ -349,40 +412,34 @@ class OCRDatasetV2(IterableDataset):
             dir_path = os.path.dirname(abs_path)
             base_name = os.path.basename(abs_path)
 
-            # ========= 冲突处理逻辑 =========
+            # Conflict handling logic
             if abs_path in existing_paths:
-                # 覆盖现有数据
+                # Overlay existing data
                 merged_idx = existing_paths[abs_path]
 
-                # 更新核心映射
                 merged_dataset._image_map[merged_idx] = base_name
                 merged_dataset._place_map[merged_idx] = root_path_to_id[dir_path]
 
-                # 更新标签
                 if merged_dataset._with_label:
                     merged_dataset._label_map[merged_idx] = other._label_map.get(other_idx, [])
 
-                # 更新目录映射
                 merged_dataset._dir_basename_map[dir_path].add(base_name)
             else:
-                # 新增数据项
+                # New data item
                 new_idx = len(merged_dataset._image_map)
 
-                # 更新核心映射
                 merged_dataset._image_map[new_idx] = base_name
                 merged_dataset._place_map[new_idx] = root_path_to_id[dir_path]
 
-                # 更新标签
                 if merged_dataset._with_label:
                     merged_dataset._label_map[new_idx] = other._label_map.get(other_idx, [])
 
-                # 更新目录映射
                 merged_dataset._dir_basename_map[dir_path].add(base_name)
                 existing_paths[abs_path] = new_idx
 
-        # ==================== 合并标签文件 ====================
+        # Merge label file
         if self.with_image and self.with_label:
-            # 合并lab_files，other的覆盖当前
+            # other overwrite current
             merged_dataset._lab_files.update(other._lab_files)
 
         return merged_dataset
@@ -415,73 +472,6 @@ class OCRDatasetV2(IterableDataset):
     @property
     def with_label(self):
         return self._with_label
-
-    def _parse(self, image_root, label_file=None, offset=0, root_idx=None, label_file_encoding='utf-8'):
-        abs_image_root = os.path.abspath(os.path.normpath(image_root))
-        if not os.path.isdir(abs_image_root):
-            raise ValueError(f"image_path must be a directory: {abs_image_root}.")
-        if not os.path.exists(abs_image_root):
-            raise FileNotFoundError(f"Image path {abs_image_root} does not exist.")
-
-        if abs_image_root not in self._root_dirs:
-            if root_idx is None:
-                root_idx = len(self._roots_map)
-                self._roots_map[root_idx] = abs_image_root
-            self._root_dirs.add(abs_image_root)
-            self._dir_basename_map[abs_image_root] = set()
-        else:
-            root_idx = [k for k, v in self._roots_map.items() if v == abs_image_root][0]
-
-        data = {} if label_file is None else self._parse_file(label_file, encoding=label_file_encoding)
-        if self.subject_to == "image":
-            valid_images = [p for p in os.listdir(abs_image_root) if p.endswith(tuple(IMG_FORMATS))]
-            for i, im in enumerate(valid_images):
-                idx = offset + i
-                self._image_map[idx] = im
-                self._place_map[idx] = root_idx
-                self._dir_basename_map[abs_image_root].add(im)
-                if self.with_label:
-                    self._label_map[idx] = data.get(im, [])
-        elif self.subject_to == "label":
-            for i, (im, la) in enumerate(data.items()):
-                idx = offset + i
-                self._image_map[idx] = im
-                self._place_map[idx] = root_idx
-                self._dir_basename_map[abs_image_root].add(im)
-                self._label_map[idx] = la
-
-    def _parse_label(self, contents):
-        return json.loads(self.fmt_label_loads(contents))
-
-    def _parse_file(self, file, encoding='utf-8'):
-        data = {}
-        with open(file, 'r', encoding=encoding) as f:
-            for i, line in enumerate(f):
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split('\t')
-                if len(parts) < 2:
-                    continue
-                p, a = parts[0], parts[1]
-                if self.subject_to == "image":
-                    image_name = os.path.basename(p)
-                else:
-                    image_name = os.path.join(*os.path.normpath(p).split(os.sep)[1:])
-                data[image_name] = self._parse_label(a)
-        return data
-
-    def fmt_label_dumps(self, label):
-        return (str(label).replace("'", '"')
-                .replace('"difficult": 0', '"difficult": false')
-                .replace('"difficult": 1', '"difficult": true'))
-
-    def fmt_label_loads(self, label: str):
-        return (label.strip("\n").strip("\r")
-                .replace('"difficult": false', '"difficult": 0')
-                .replace('"difficult": true', '"difficult": 1')
-                .replace('"difficult": False', '"difficult": 0')
-                .replace('"difficult": True', '"difficult": 1'))
 
     def append(self, image_path, label=None):
         abs_image_path = os.path.abspath(os.path.normpath(image_path))

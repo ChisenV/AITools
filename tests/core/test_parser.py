@@ -5,7 +5,7 @@ print(BASE_DIR, AITools_Path)
 sys.path.append(AITools_Path)
 sys.path.append(BASE_DIR)
 
-from AITools.core import parser
+from AITools.comp import parser
 
 
 def test_parser():

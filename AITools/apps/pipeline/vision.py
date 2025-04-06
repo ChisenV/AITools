@@ -4,6 +4,8 @@ from typing import Any, AsyncGenerator, Dict, Optional
 import asyncio
 import time
 
+from AITools import Config
+
 
 class DataBatch:
     """增强型数据批处理容器"""
@@ -91,6 +93,7 @@ class Pipeline:
 
     def __init__(
             self,
+            config: Config,
             model: ModelInference,
             evaluator: Evaluator,
             saver: ResultSaver,
