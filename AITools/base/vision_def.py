@@ -1,12 +1,12 @@
 import io
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Union, List, Optional, Tuple, Dict, Any, TypeVar
+from typing import Union, List, Optional, Tuple, Dict, Any
 from PIL import Image
 
 import numpy as np
 
 from . import torch
+from AITools.utils.compatibility import StrEnum
 
 __all__ = [
     "IMG_FORMATS", 
@@ -21,16 +21,17 @@ __all__ = [
     "SegmentationLabel",
     "OCRLabel", 
     "MaskFormat", 
-    "InstanceSegmentationLabel", 
-    "DatasetItem"
+    "InstanceSegmentationLabel",
+    "DataItem"
 ]
+
 
 IMG_FORMATS = ["bmp", "jpg", "jpeg", "png", "tif", "tiff", "dng", "webp", "mpo"]
 VID_FORMATS = ["mp4", "mov", "avi", "mkv"]
 
 
 @dataclass
-class BoxFormat(Enum):
+class BoxFormat(StrEnum):
     XYXY = "xyxy"         # left top and right bottom
     LTRB = "ltrb"         # left top and right bottom
     LTWH = "ltwh"         # left top and width, height(COCO format)
@@ -39,10 +40,11 @@ class BoxFormat(Enum):
     YOLO = "yolo"         # center x, center y and width, height normalized(YOLO det format)
     YOLO_OBB = "yoloobb"  # center x, center y, width, height and angle normalized(YOLO obb format)
     COCO = "coco"         # left top and width, height(COCO format)
+    POINTS = "points"     # points
 
 
 @dataclass
-class ImageType(Enum):
+class ImageType(StrEnum):
     """图像数据存储模式"""
     NUMPY_ARRAY = "numpy"  # 内存中的numpy数组（默认）
     TENSOR = "tensor"      # PyTorch/TensorFlow等框架张量
@@ -50,6 +52,21 @@ class ImageType(Enum):
     BYTE_STREAM = "bytes"  # 字节流（如从网络接收）
     PIL_IMAGE = "pil"      # PIL.Image对象
     LAZY_LOADER = "lazy"   # 自定义延迟加载函数
+
+
+@dataclass
+class ImageFormat(StrEnum):
+    """图像数据存储模式"""
+    RGB = "rgb"      # RGB格式（默认）
+    BGR = "bgr"      # BGR格式
+    GRAY = "gray"    # 灰度图
+    RGBA = "rgba"    # RGBA格式
+    CMYK = "cmyk"    # CMYK格式
+    YUV = "yuv"      # YUV格式
+    HSV = "hsv"      # HSV格式
+    LAB = "lab"      # LAB格式
+    XYZ = "xyz"      # XYZ格式
+    YCrCb = "ycrcb"  # YCrCb格式
 
 
 @dataclass
@@ -63,7 +80,8 @@ class ImageData:
         callable,      # 延迟加载函数
     ]
     path: str
-    format: str = "RGB"  # 颜色通道格式
+    format: str = "RGB"       # 颜色通道格式
+    shape: tuple = None       # 图像尺寸
     id: Optional[str] = None  # 唯一标识符
     input_name: Optional[str] = None  # 输入节点名称
 
@@ -90,7 +108,7 @@ class ImageData:
 
     # ---------- 核心方法：按需转换 ----------
     def to_numpy(self) -> np.ndarray:
-        """统一转换为numpy数组"""
+        """Unified conversion to numpy array"""
         if self._decoded is not None:
             return self._decoded
 
@@ -105,25 +123,28 @@ class ImageData:
         elif self._type == ImageType.PIL_IMAGE:
             self._decoded = np.array(self.data)
         elif self._type == ImageType.LAZY_LOADER:
-            self._decoded = self.data()  # 执行延迟加载函数
+            self._decoded = self.data()  # Execute the lazy load function
 
         return self._decoded
 
     def to_tensor(self, device="cpu") -> torch.Tensor:
-        """转换为PyTorch张量"""
+        """Convert to PyTorch tensor"""
         return torch.from_numpy(self.to_numpy()).to(device)
 
     def to_pil(self) -> Image.Image:
-        """转换为PIL图像"""
+        """Convert to PIL image"""
         return Image.fromarray(self.to_numpy())
 
 
 @dataclass
 class BoundingBox:
     """通用边界框定义（支持多种格式）"""
-    coords: List[float]         # 坐标值
-    format: str                 # 格式标识，如 "xyxy" | "xywh" | "yolo"
-    normalized: bool = False    # 是否归一化坐标（相对于图像尺寸）
+    coords: Union[
+        List[Union[int, float]],       # 一维列表，如 [x1, y1, x2, y2] 或 [x, y, w, h]
+        List[List[Union[int, float]]]  # 二维列表，如 [[x1, y1], [x2, y2]]
+    ]
+    format: str                        # 格式标识，如 "xyxy" | "xywh" | "yolo"
+    normalized: bool = False           # 是否归一化坐标（相对于图像尺寸）
 
 
 @dataclass
@@ -163,16 +184,16 @@ class SegmentationLabel:
 class OCRLabel:
     """OCR标签"""
     text: str
-    char_boxes: List[BoundingBox]                 # 字符级边界框
-    text_box: BoundingBox                         # 文本区域边界框
-    text_direction: int                           # 暂定文本旋转角度
+    text_box: BoundingBox = None                  # 文本区域边界框
+    text_direction: int = None                    # 暂定文本旋转角度
+    char_boxes: List[BoundingBox] = None          # 字符级边界框
     text_confidence: Optional[float] = None       # 预测时使用
     box_confidence: Optional[float] = None        # 预测时使用
     direction_confidence: Optional[float] = None  # 预测时使用
 
 
 @dataclass
-class MaskFormat(Enum):
+class MaskFormat(StrEnum):
     BINARY = "binary"       # 二值掩码 (0/1)
     INDEXED = "indexed"     # 实例ID索引 (0~N)
     RLE = "rle"             # COCO的Run-Length Encoding
@@ -195,9 +216,12 @@ class InstanceSegmentationLabel:
 
 
 @dataclass
-class VisionDataItem:
+class DataItem:
     """数据集返回的原子单元"""
-    image: ImageData
+    data: Dict[str, Union[
+        ImageData,
+        Any
+    ]] = field(default_factory=dict)
     labels: List[Union[
         DetectionLabel,
         ClassificationLabel,
@@ -219,21 +243,10 @@ class VisionDataItem:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-def parse_yolo_label(image_path, label_path):
-    with open(label_path) as f:
-        labels = []
-        for line in f:
-            class_id, x_center, y_center, w, h = map(float, line.split())
-            bbox = BoundingBox(
-                coords=[x_center, y_center, w, h],
-                format="yolo",
-                normalized=True
-            )
-            labels.append(DetectionLabel(bbox=bbox, class_id=int(class_id)))
-        return VisionDataItem(
-            image=ImageData(data=..., path=image_path),
-            labels=labels
-        )
+class MultiIOConfig:
+    preprocessors: Dict[str, List[Any]] = field(default_factory=dict)
+    postprocessors: Dict[str, List[Any]] = field(default_factory=dict)
+    parsers: Dict[str, Any] = field(default_factory=dict)
 
 
 def coco_to_protocol(coco_ann, image_info):
@@ -248,7 +261,7 @@ def coco_to_protocol(coco_ann, image_info):
             class_id=ann['category_id'],
             is_crowd=ann['iscrowd']
         ))
-    return VisionDataItem(
+    return DataItem(
         image=ImageData(
             data=...,
             path=image_info['file_name'],
@@ -258,33 +271,9 @@ def coco_to_protocol(coco_ann, image_info):
     )
 
 
-def parse_voc_segmentation(image_path, mask_path):
-    return VisionDataItem(
-        image=ImageData(data=..., path=image_path),
-        labels=[
-            SegmentationLabel(mask=...)
-        ]
-    )
-
-
-def yolo_to_absolute(bbox: BoundingBox, img_width: int, img_height: int):
-    if bbox.format != "yolo" or not bbox.normalized:
-        return bbox
-    x, y, w, h = bbox.coords
-    return BoundingBox(
-        coords=[
-            (x - w/2) * img_width,   # x_min
-            (y - h/2) * img_height,  # y_min
-            (x + w/2) * img_width,   # x_max
-            (y + h/2) * img_height   # y_max
-        ],
-        format="xyxy",
-        normalized=False
-    )
-
 
 def convert_coco_instance(coco_ann, img_info, img_array):
-    item = DatasetItem(
+    item = DataItem(
         image=ImageData(
             data=img_array,
             path=img_info['file_name'],
@@ -337,7 +326,7 @@ class MaskDecoder:
             raise ValueError(f"Unsupported mask format: {label.mask_format}")
 
 
-def instances_to_semantic(item: DatasetItem) -> DatasetItem:
+def instances_to_semantic(item: DataItem) -> DataItem:
     """将实例分割转换为语义分割（类别聚合）"""
     h, w = item.image.data.shape[:2]
     semantic_mask = np.zeros((h, w), dtype=np.int32)
@@ -349,7 +338,7 @@ def instances_to_semantic(item: DatasetItem) -> DatasetItem:
             # 将对应区域设为类别ID
             semantic_mask[instance_mask == 1] = label.class_id
 
-    return DatasetItem(
+    return DataItem(
         image=item.image,
         labels=[SegmentationLabel(mask=semantic_mask)],
         metadata=item.metadata
