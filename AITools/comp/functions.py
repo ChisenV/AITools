@@ -7,10 +7,22 @@ __all__ = [
     "imread",
     "imwrite",
     "imshow",
+    "parse_yolo_det_label",
+    "parse_ppocr_label",
+    "parse_voc_det",
+    "yolo_to_absolute"
 ]
 
-from AITools import BoundingBox, DetectionLabel, DataItem, ImageData, XMLParser
-from AITools.base.vision_def import ImageFormat, OCRLabel, BoxFormat
+from .parser import XMLParser
+from AITools.base.vision_def import (
+    BoxFormat,
+    BoundingBox,
+    DetectionLabel,
+    DataItem,
+    ImageData,
+    ImageFormat,
+    OCRLabel
+)
 
 # OpenCV Multilanguage-friendly functions ------------------------------------------------------------------------------
 _imshow = cv2.imshow  # copy to avoid recursion errors
@@ -60,9 +72,9 @@ def imshow(winname: str, mat: np.ndarray):
     _imshow(winname.encode("unicode_escape").decode(), mat)
 
 
-# YOLO label parser ----------------------------------------------------------------------------------------------------
+# Dataset label parser -------------------------------------------------------------------------------------------------
 # async def parse_yolo_label(image_path, label_path):
-def parse_yolo_det_label(image_path, label_path):
+def parse_yolo_det_label(image_path: str, label_path: str, normalized: bool = True):
     image = imread(image_path)
     labels = []
     with open(label_path) as f:
@@ -70,9 +82,11 @@ def parse_yolo_det_label(image_path, label_path):
             class_id, x_center, y_center, w, h = map(float, line.split())
             bbox = BoundingBox(
                 coords=[x_center, y_center, w, h],
-                format="yolo",
+                format=BoxFormat.YOLO,
                 normalized=True
             )
+            if not normalized:
+                bbox = yolo_to_absolute(bbox, image.shape[1], image.shape[0])
             labels.append(DetectionLabel(bbox=bbox, class_id=int(class_id)))
     return DataItem(
         data={
@@ -88,7 +102,7 @@ def parse_yolo_det_label(image_path, label_path):
 
 
 # async def parse_ppocr_label(image_path, anno_label):
-def parse_ppocr_label(image_path, anno_label):
+def parse_ppocr_label(image_path: str, anno_label: dict):
     image = imread(image_path)
     return DataItem(
         data={
@@ -113,32 +127,61 @@ def parse_ppocr_label(image_path, anno_label):
     )
 
 
-def parse_voc_det(image_path, label_path):
+def parse_voc_det(image_path: str, label_path: str):
     image = imread(image_path)
     if Path(label_path).suffix == ".xml":
-        labels = XMLParser.load(label_path)
+        anno_label = XMLParser.load(label_path)
     else:
-        labels = None
+        anno_label = None
+    labels = None
+    objects = anno_label['annotation'].get("object", None)
+    if isinstance(objects, dict):
+        objects = [objects]
+    if objects:
+        labels = [
+            DetectionLabel(
+                bbox=BoundingBox(
+                    coords=[
+                        obj['bndbox']['xmin'],
+                        obj['bndbox']['ymin'],
+                        obj['bndbox']['xmax'],
+                        obj['bndbox']['ymax']
+                    ],
+                    format=BoxFormat.XYXY,
+                    normalized=False
+                ),
+                class_name=obj['name'],
+                pose=obj['pose'],
+                truncated=obj['truncated'],
+                difficult=obj['difficult']
+            )
+            for obj in objects
+        ]
     return DataItem(
         data={
-            "image": ImageData(data=image, shape=image.shape, path=image_path)
+            "image": ImageData(
+                data=image,
+                shape=image.shape,
+                path=image_path,
+                format=ImageFormat.BGR
+            )
         },
-        labels=[]
+        labels=labels if labels else None
     )
 
 
-def yolo_to_absolute(bbox: BoundingBox, img_width: int, img_height: int):
+def yolo_to_absolute(bbox: BoundingBox, width: int, height: int):
     if bbox.format != "yolo" or not bbox.normalized:
         return bbox
     x, y, w, h = bbox.coords
     return BoundingBox(
         coords=[
-            (x - w/2) * img_width,   # x_min
-            (y - h/2) * img_height,  # y_min
-            (x + w/2) * img_width,   # x_max
-            (y + h/2) * img_height   # y_max
+            (x - w/2) * width,   # x_min
+            (y - h/2) * height,  # y_min
+            (x + w/2) * width,   # x_max
+            (y + h/2) * height   # y_max
         ],
-        format="xyxy",
+        format=BoxFormat.XYXY,
         normalized=False
     )
 

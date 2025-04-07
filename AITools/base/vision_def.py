@@ -12,7 +12,8 @@ __all__ = [
     "IMG_FORMATS", 
     "VID_FORMATS", 
     "BoxFormat", 
-    "ImageType", 
+    "ImageType",
+    "ImageFormat",
     "ImageData",
     "BoundingBox", 
     "DetectionLabel", 
@@ -151,10 +152,13 @@ class BoundingBox:
 class DetectionLabel:
     """目标检测标签"""
     bbox: BoundingBox
-    class_id: int
+    class_id: int = None
     class_name: Optional[str] = None
     confidence: Optional[float] = None  # 预测时使用
     is_crowd: bool = False              # COCO兼容
+    pose: Optional[str] = None          # VOC兼容
+    truncated: int = None               # VOC兼容
+    difficult: int = None               # VOC兼容
 
 
 @dataclass

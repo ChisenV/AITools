@@ -1,6 +1,6 @@
 from abc import ABC
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
 
 from AITools.core import manager
 
@@ -34,16 +34,16 @@ class YAMLParser(Parser):
     _SUPPORTED_EXTENSIONS = [".yaml", ".yml"]
 
     @classmethod
-    def load(cls, path: Path, encoding='utf-8', **kwargs) -> Dict[str, Any]:
+    def load(cls, path: Union[str, Path], encoding='utf-8', **kwargs) -> Dict[str, Any]:
         import yaml
         with open(path, 'r', encoding=encoding) as f:
             return yaml.safe_load(f) or {}
 
     @classmethod
-    def dump(cls, data: Dict[str, Any], path: Path, encoding='utf-8', **kwargs) -> None:
+    def dump(cls, data: Dict[str, Any], path: Union[str, Path], encoding='utf-8', **kwargs) -> None:
         import yaml
         with open(path, 'w', encoding=encoding) as f:
-            yaml.safe_dump(data, f, allow_unicode=True, indent=2)
+            yaml.safe_dump(data, f, allow_unicode=True, indent=kwargs.get('indent', 2))
 
 
 # --------------------- JSON plugin implement ---------------------
@@ -53,16 +53,16 @@ class JSONParser(Parser):
     _SUPPORTED_EXTENSIONS = [".json"]
 
     @classmethod
-    def load(cls, path: Path, encoding='utf-8', **kwargs) -> Dict[str, Any]:
+    def load(cls, path: Union[str, Path], encoding='utf-8', **kwargs) -> Dict[str, Any]:
         import json
         with open(path, 'r', encoding=encoding) as f:
             return json.load(f) or {}
 
     @classmethod
-    def dump(cls, data: Dict[str, Any], path: Path, encoding='utf-8', **kwargs) -> None:
+    def dump(cls, data: Dict[str, Any], path: Union[str, Path], encoding='utf-8', **kwargs) -> None:
         import json
         with open(path, 'w', encoding=encoding) as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=kwargs.get('indent', 2))
 
 
 # --------------------- XML plugin implement ---------------------
@@ -74,7 +74,7 @@ class XMLParser(Parser):
     @classmethod
     def load(
             cls,
-            path: Path,
+            path: Union[str, Path],
             fmt_att2key: str = '_{}_',
             unlabeled_text_key: str = '#text',
             **kwargs
@@ -83,7 +83,7 @@ class XMLParser(Parser):
         Load the data from a file
         Args:
             path: the path of the file
-            fmt_att2key: the format of the key of the attribute, e.g. '_{}_'
+            fmt_att2key: the format of the key of the attribute on the tag, e.g. '_{}_'
             unlabeled_text_key: the key of the text of the element without label, e.g. '#text'
             **kwargs:
 
@@ -123,7 +123,7 @@ class XMLParser(Parser):
     def dump(
             cls,
             data: Dict[str, Any],
-            path: Path,
+            path: Union[str, Path],
             fmt_att2key: str = '_{}_',
             unlabeled_text_key: str = '#text',
             encoding='utf-8',

@@ -21,7 +21,7 @@ import numpy as np
 from AITools.base.dataset_def import IterableDataset, T_co
 from AITools.base.vision_def import IMG_FORMATS
 from AITools.core import manager
-from AITools.utils.functions import parse_ppocr_label
+from AITools.comp.functions import parse_ppocr_label
 
 __all__ = [
     "OCRDatasetV2",
