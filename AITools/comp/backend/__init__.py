@@ -1,8 +1,7 @@
 import ctypes
 
 import numpy as np
-from cuda.bindings import driver, nvrtc, runtime as cudart
-from cuda.bindings.driver import CUresult
+from cuda.bindings import driver, nvrtc
 
 __all__ = [
     "TensorRTModel",
@@ -25,7 +24,7 @@ def _cuda_get_error_enum(error):
 
 
 def check_cuda_errors(result):
-    if isinstance(result, CUresult):
+    if isinstance(result, driver.CUresult):
         if result != driver.CUresult.CUDA_SUCCESS:
             raise RuntimeError("CUDA error code={}({})".format(result.value, _cuda_get_error_enum(result)))
         else:
