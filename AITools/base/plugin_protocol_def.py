@@ -42,7 +42,7 @@ class ModelHandlerPlugin(Protocol):  # TODO: maybe can inherit from `ParserPlugi
         ...
 
     def destroy(self, *args, **kwargs) -> Any:
-        """Release the resources occupied by the model（如显存、线程池）"""
+        """Release the resources occupied by the model (e.g. GPU memory, thread pool)"""
         ...
 
     def is_ready(self) -> bool:  # TODO: Remove this method after the framework is unified

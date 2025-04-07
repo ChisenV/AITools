@@ -9,7 +9,7 @@ __all__ = [
     "imshow",
     "parse_yolo_det_label",
     "parse_ppocr_label",
-    "parse_voc_det",
+    "parse_voc_det_label",
     "yolo_to_absolute"
 ]
 
@@ -97,14 +97,12 @@ def parse_yolo_det_label(image_path: str, label_path: str, normalized: bool = Tr
                 bbox = yolo_to_absolute(bbox, image.shape[1], image.shape[0])
             labels.append(DetectionLabel(bbox=bbox, class_id=int(class_id)))
     return DataItem(
-        data={
-            "image": ImageData(
-                data=image,
-                shape=image.shape,
-                path=image_path,
-                format=ImageFormat.BGR
-            )
-        },
+        image=ImageData(
+            data=image,
+            shape=image.shape,
+            path=image_path,
+            format=ImageFormat.BGR
+        ),
         labels=labels
     )
 
@@ -114,14 +112,12 @@ def parse_yolo_det_label(image_path: str, label_path: str, normalized: bool = Tr
 def parse_ppocr_label(image_path: str, anno_label: dict):
     image = imread(image_path)
     return DataItem(
-        data={
-            "image": ImageData(
-                data=image,
-                shape=image.shape,
-                path=image_path,
-                format=ImageFormat.BGR
-            )
-        },
+        image=ImageData(
+            data=image,
+            shape=image.shape,
+            path=image_path,
+            format=ImageFormat.BGR
+        ),
         labels=[
             OCRLabel(
                 text=la["transcription"],
@@ -137,7 +133,7 @@ def parse_ppocr_label(image_path: str, anno_label: dict):
 
 
 @FUNCTIONS.register_component
-def parse_voc_det(image_path: str, label_path: str):
+def parse_voc_det_label(image_path: str, label_path: str):
     image = imread(image_path)
     if Path(label_path).suffix == ".xml":
         anno_label = XMLParser.load(label_path)
@@ -168,14 +164,12 @@ def parse_voc_det(image_path: str, label_path: str):
             for obj in objects
         ]
     return DataItem(
-        data={
-            "image": ImageData(
-                data=image,
-                shape=image.shape,
-                path=image_path,
-                format=ImageFormat.BGR
-            )
-        },
+        image=ImageData(
+            data=image,
+            shape=image.shape,
+            path=image_path,
+            format=ImageFormat.BGR
+        ),
         labels=labels if labels else None
     )
 

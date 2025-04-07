@@ -1,7 +1,7 @@
 import os
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, Union, List
+from typing import Any, Dict, Union
 
 import numpy as np
 import tensorrt as trt

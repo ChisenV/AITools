@@ -1,6 +1,6 @@
 import io
 from dataclasses import dataclass, field
-from typing import Union, List, Optional, Tuple, Dict, Any
+from typing import Union, List, Optional, Tuple, Dict, Any, Type
 from PIL import Image
 
 import numpy as np
@@ -222,10 +222,10 @@ class InstanceSegmentationLabel:
 @dataclass
 class DataItem:
     """数据集返回的原子单元"""
-    data: Dict[str, Union[
-        ImageData,
-        Any
-    ]] = field(default_factory=dict)
+    image: ImageData = None
+    text = None
+    audio = None
+    sensor = None
     labels: List[Union[
         DetectionLabel,
         ClassificationLabel,
@@ -247,7 +247,19 @@ class DataItem:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class IOConfig:
+    name: str
+    dtype: Type[np.int8 | np.int32 | np.float16 | np.float32 | np.uint8 | bool]
+    shape: Union[Tuple[int], List[int]]
+    host: int
+    device: int
+
+
+@dataclass
 class MultiIOConfig:
+    inputs: List[IOConfig]
+    outputs: List[IOConfig]
     preprocessors: Dict[str, List[Any]] = field(default_factory=dict)
     postprocessors: Dict[str, List[Any]] = field(default_factory=dict)
     parsers: Dict[str, Any] = field(default_factory=dict)
@@ -332,7 +344,7 @@ class MaskDecoder:
 
 def instances_to_semantic(item: DataItem) -> DataItem:
     """将实例分割转换为语义分割（类别聚合）"""
-    h, w = item.image.data.shape[:2]
+    h, w = item.image.image.shape[:2]
     semantic_mask = np.zeros((h, w), dtype=np.int32)
 
     for label in item.labels:
