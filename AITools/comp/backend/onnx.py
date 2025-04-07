@@ -2,9 +2,11 @@ from typing import Dict
 
 import numpy as np
 
+from . import BACKENDS
 from AITools.base.model_def import BaseModelHandler
 
 
+@BACKENDS.register_component
 class ONNXHandler(BaseModelHandler):
     def load(self):
         import onnxruntime as ort

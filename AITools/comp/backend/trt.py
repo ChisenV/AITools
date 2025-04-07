@@ -7,13 +7,13 @@ import numpy as np
 import tensorrt as trt
 from cuda.bindings import driver
 
-from . import check_cuda_errors, int_address_to_ndarray
-from AITools.core.config import Config
-from AITools.base.model_def import BaseModelHandler
-
 __all__ = [
     "TensorRTModel"
 ]
+
+from . import check_cuda_errors, int_address_to_ndarray, BACKENDS
+from AITools.base.model_def import BaseModelHandler
+from AITools.core.config import Config
 
 _TENSORRT_MODEL_SUPPORT_SUFFIX = [".trt", ".engine", ".onnx"]
 _TENSORRT_ONNX_SUPPORT_SUFFIX = [".onnx"]
@@ -24,6 +24,7 @@ _TENSORRT_CONFIG_DEFAULT_EXPLICIT_BATCH = True
 _TENSORRT_CONFIG_DEFAULT_BATCH_CONFIG = (1, 4, 8)
 
 
+@BACKENDS.register_component
 class TensorRTModel(BaseModelHandler):
     """
     TensorRT adapter

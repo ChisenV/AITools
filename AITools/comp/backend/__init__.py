@@ -9,6 +9,10 @@ __all__ = [
     "check_cuda_errors",
 ]
 
+from AITools.core.manager import ComponentManager
+
+BACKENDS = ComponentManager("backends")
+
 
 def _cuda_get_error_enum(error):
     if isinstance(error, driver.CUresult):

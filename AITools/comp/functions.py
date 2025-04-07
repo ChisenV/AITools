@@ -23,11 +23,16 @@ from AITools.base.vision_def import (
     ImageFormat,
     OCRLabel
 )
+from AITools.core.manager import ComponentManager
+
+
+FUNCTIONS = ComponentManager("functions")
 
 # OpenCV Multilanguage-friendly functions ------------------------------------------------------------------------------
 _imshow = cv2.imshow  # copy to avoid recursion errors
 
 
+@FUNCTIONS.register_component
 def imread(filename: str, flags: int = cv2.IMREAD_COLOR):
     """
     Read an image from a file.
@@ -42,6 +47,7 @@ def imread(filename: str, flags: int = cv2.IMREAD_COLOR):
     return cv2.imdecode(np.fromfile(filename, np.uint8), flags)
 
 
+@FUNCTIONS.register_component
 def imwrite(filename: str, img: np.ndarray, params=None):
     """
     Write an image to a file.
@@ -61,6 +67,7 @@ def imwrite(filename: str, img: np.ndarray, params=None):
         return False
 
 
+@FUNCTIONS.register_component
 def imshow(winname: str, mat: np.ndarray):
     """
     Displays an image in the specified window.
@@ -73,6 +80,7 @@ def imshow(winname: str, mat: np.ndarray):
 
 
 # Dataset label parser -------------------------------------------------------------------------------------------------
+@FUNCTIONS.register_component
 # async def parse_yolo_label(image_path, label_path):
 def parse_yolo_det_label(image_path: str, label_path: str, normalized: bool = True):
     image = imread(image_path)
@@ -101,6 +109,7 @@ def parse_yolo_det_label(image_path: str, label_path: str, normalized: bool = Tr
     )
 
 
+@FUNCTIONS.register_component
 # async def parse_ppocr_label(image_path, anno_label):
 def parse_ppocr_label(image_path: str, anno_label: dict):
     image = imread(image_path)
@@ -127,6 +136,7 @@ def parse_ppocr_label(image_path: str, anno_label: dict):
     )
 
 
+@FUNCTIONS.register_component
 def parse_voc_det(image_path: str, label_path: str):
     image = imread(image_path)
     if Path(label_path).suffix == ".xml":
@@ -170,6 +180,7 @@ def parse_voc_det(image_path: str, label_path: str):
     )
 
 
+@FUNCTIONS.register_component
 def yolo_to_absolute(bbox: BoundingBox, width: int, height: int):
     if bbox.format != "yolo" or not bbox.normalized:
         return bbox

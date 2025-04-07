@@ -2,9 +2,11 @@ from abc import ABC
 from pathlib import Path
 from typing import Dict, Any, List, Union
 
-from AITools.core import manager
-
 __all__ = ['YAMLParser', 'JSONParser', 'XMLParser']
+
+from AITools.core.manager import ComponentManager
+
+PARSERS = ComponentManager("parsers")
 
 
 class Parser(ABC):
@@ -28,7 +30,7 @@ class Parser(ABC):
 
 
 # --------------------- YAML plugin implement ---------------------
-@manager.PARSER.register_component
+@PARSERS.register_component
 class YAMLParser(Parser):
     """YAML format plugin"""
     _SUPPORTED_EXTENSIONS = [".yaml", ".yml"]
@@ -47,7 +49,7 @@ class YAMLParser(Parser):
 
 
 # --------------------- JSON plugin implement ---------------------
-@manager.PARSER.register_component
+@PARSERS.register_component
 class JSONParser(Parser):
     """JSON format plugin"""
     _SUPPORTED_EXTENSIONS = [".json"]
@@ -66,7 +68,7 @@ class JSONParser(Parser):
 
 
 # --------------------- XML plugin implement ---------------------
-@manager.PARSER.register_component
+@PARSERS.register_component
 class XMLParser(Parser):
     """XML format plugin (attribute/element/text conversion)"""
     _SUPPORTED_EXTENSIONS = [".xml"]

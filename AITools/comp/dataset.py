@@ -18,19 +18,21 @@ from typing import (
 
 import numpy as np
 
-from AITools.base.dataset_def import IterableDataset, T_co
-from AITools.base.vision_def import IMG_FORMATS
-from AITools.core import manager
-from AITools.comp.functions import parse_ppocr_label
-
 __all__ = [
     "OCRDatasetV2",
     "OCRCLSDatasetV2",
     "OCRRECDatasetV2"
 ]
 
+from AITools.base.dataset_def import IterableDataset, T_co
+from AITools.base.vision_def import IMG_FORMATS
+from AITools.core.manager import ComponentManager
+from AITools.comp.functions import parse_ppocr_label
 
-@manager.DATASETS.register_component
+DATASETS = ComponentManager("datasets")
+
+
+@DATASETS.register_component
 class OCRDatasetV2(IterableDataset):
     def __init__(
             self,
@@ -757,7 +759,7 @@ class OCRDatasetV2(IterableDataset):
         return groups
 
 
-@manager.DATASETS.register_component
+@DATASETS.register_component
 class OCRRECDatasetV2(OCRDatasetV2):
     def __init__(self, *args, **kwargs):
         subject_to = kwargs.pop("subject_to", "label")
@@ -773,7 +775,7 @@ class OCRRECDatasetV2(OCRDatasetV2):
         return label.strip("\n").strip("\r")
 
 
-@manager.DATASETS.register_component
+@DATASETS.register_component
 class OCRCLSDatasetV2(OCRDatasetV2):
     def __init__(self, *args, categories: dict[int, str], **kwargs):
         self._categories_i2s = categories

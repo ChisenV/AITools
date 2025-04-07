@@ -6,9 +6,22 @@ import yaml
 from ast import literal_eval
 from typing import Any, Dict, Optional, List, Type, Union
 
-from .manager import PARSER as SUPPORTED_PARSERS
+__all__ = [
+    'BASE_KEY',
+    'INHERIT_KEY',
+    'TYPE_KEY',
+    'Config'
+]
 
+from . import manager
 from AITools.base.plugin_protocol_def import ParserPlugin
+
+_PARSERS_MANAGER_NAME = 'parsers'
+for c in manager.COMPONENT_MANAGERS:
+    if c.name == _PARSERS_MANAGER_NAME:
+        SUPPORTED_PARSERS = c
+    else:
+        SUPPORTED_PARSERS = manager.ComponentManager(_PARSERS_MANAGER_NAME, append_global=False)
 
 BASE_KEY = '_base_'
 INHERIT_KEY = '_inherit_'

@@ -11,12 +11,13 @@ from AITools import XMLParser, JSONParser, YAMLParser
 def test_parser():
     print()
     data = XMLParser().load(r"E:\python_project\AIToolsV2\AITools\tests\core\test_config.xml")
-    JSONParser().dump(data, r"G:\project\AITools\tests\core\test_config.json")
-    YAMLParser().dump(data, r"G:\project\AITools\tests\core\test_config.yaml")
     print(data)
 
-    data1 = JSONParser().load(r"G:\project\AITools\tests\core\test_config.json")
-    YAMLParser().dump(data, r"G:\project\AITools\tests\core\test_config_json.yaml")
-
-    data2 = YAMLParser().load(r"G:\project\AITools\tests\core\test_config.yaml")
-    print(data1, data2)
+    # JSONParser().dump(data, r"G:\project\AITools\tests\core\test_config.json")
+    # YAMLParser().dump(data, r"G:\project\AITools\tests\core\test_config.yaml")
+    #
+    # data1 = JSONParser().load(r"G:\project\AITools\tests\core\test_config.json")
+    # YAMLParser().dump(data, r"G:\project\AITools\tests\core\test_config_json.yaml")
+    #
+    # data2 = YAMLParser().load(r"G:\project\AITools\tests\core\test_config.yaml")
+    # print(data1, data2)

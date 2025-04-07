@@ -4,6 +4,13 @@ import warnings
 from types import MappingProxyType
 from typing import Callable, Dict, List, Optional, Tuple, Union, ItemsView
 
+__all__ = [
+    'ComponentManager',
+    'COMPONENT_MANAGERS'
+]
+
+COMPONENT_MANAGERS: List['ComponentManager'] = []
+
 
 class ComponentManager:
     """
@@ -54,11 +61,14 @@ class ComponentManager:
     def __init__(
             self,
             name: Optional[str] = None,
-            comp_name_getter: Optional[Callable[[Union[type, Callable]], str]] = None
+            comp_name_getter: Optional[Callable[[Union[type, Callable]], str]] = None,
+            append_global: bool = True
     ):
         self._components_dict: Dict[str, Union[type, Callable]] = {}
         self._name = name
         self._name_getter = comp_name_getter or (lambda x: x.__name__)
+        if append_global:
+            COMPONENT_MANAGERS.append(self)
 
     def __len__(self) -> int:
         return len(self._components_dict)
@@ -155,15 +165,3 @@ class ComponentManager:
             else:
                 self._add_single_component(components, allow_overwrite)
             return components
-
-
-ADAPTERS = ComponentManager("adapters")
-DATASETS = ComponentManager("datasets")
-DATALOADERS = ComponentManager("dataloaders")
-EVALUATORS = ComponentManager("evaluators")
-METRICS = ComponentManager("metrics")
-TRANSFORMS = ComponentManager("transforms")
-CONVERTS = ComponentManager("converts")
-PARSER = ComponentManager("parser")
-
-COMPONENT_MANAGERS = [ADAPTERS, DATASETS, DATALOADERS, EVALUATORS, METRICS, TRANSFORMS, CONVERTS, PARSER]
