@@ -5,7 +5,8 @@ from cuda.bindings import driver, nvrtc
 
 __all__ = [
     "TensorRTModel",
-    "check_cuda_errors",
+    "check_cuda_result",
+    "int_address_to_ndarray"
 ]
 
 from AITools.core.manager import ComponentManager
@@ -23,7 +24,7 @@ def _cuda_get_error_enum(error):
         raise RuntimeError('Unknown error type: {}'.format(error))
 
 
-def check_cuda_errors(result):
+def check_cuda_result(result):
     if isinstance(result, driver.CUresult):
         if result != driver.CUresult.CUDA_SUCCESS:
             raise RuntimeError("CUDA error code={}({})".format(result.value, _cuda_get_error_enum(result)))

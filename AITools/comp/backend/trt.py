@@ -11,7 +11,7 @@ __all__ = [
     "TensorRTModel"
 ]
 
-from . import check_cuda_errors, int_address_to_ndarray, BACKENDS
+from . import check_cuda_result, int_address_to_ndarray, BACKENDS
 from AITools.base.model_def import BaseModelHandler
 from AITools.core.config import Config
 
@@ -104,11 +104,11 @@ class TensorRTModel(BaseModelHandler):
         # Free GPU memory
         for _, (host_buffer, device_buffer, _, _) in self._buffers.items():
             if isinstance(host_buffer, np.ndarray):
-                check_cuda_errors(driver.cuMemHostUnregister(host_buffer.ctypes.data))
+                check_cuda_result(driver.cuMemHostUnregister(host_buffer.ctypes.data))
                 del host_buffer
             else:
-                check_cuda_errors(driver.cuMemFreeHost(host_buffer))
-            check_cuda_errors(driver.cuMemFree(device_buffer))
+                check_cuda_result(driver.cuMemFreeHost(host_buffer))
+            check_cuda_result(driver.cuMemFree(device_buffer))
 
         self._initialized = False
         self.run_hooks("on_model_destroy_finished", *args, **kwargs)
@@ -197,10 +197,8 @@ class TensorRTModel(BaseModelHandler):
 
             # Allocate CPU memory and GPU memory
             n_byte = trt.volume(shape) * dtype.itemsize
-            host_buffer = check_cuda_errors(driver.cuMemAllocHost(n_byte))
-            # host_buffer = np.empty(shape, dtype=self.nptype(dtype))
-            # check_cuda_errors(driver.cuMemHostRegister(host_buffer.ctypes.data, n_byte, 0))
-            device_buffer = check_cuda_errors(driver.cuMemAlloc(n_byte))
+            host_buffer = check_cuda_result(driver.cuMemAllocHost(n_byte))
+            device_buffer = check_cuda_result(driver.cuMemAlloc(n_byte))
 
             if is_input:
                 self._model_info.setdefault("inputs", []).append({
@@ -236,10 +234,10 @@ class TensorRTModel(BaseModelHandler):
             host_buffer, device_buffer = input_info["host"], input_info["device"]
             if isinstance(host_buffer, np.ndarray):
                 np.copyto(host_buffer, input_data[name])  # TODO move this memory copy operation to preprocess stage
-                check_cuda_errors(driver.cuMemcpyHtoD(device_buffer, host_buffer.ctypes.data, n_byte))
+                check_cuda_result(driver.cuMemcpyHtoD(device_buffer, host_buffer.ctypes.data, n_byte))
             elif isinstance(host_buffer, int):
                 np.copyto(int_address_to_ndarray(host_buffer, dtype, shape), input_data[name])
-                check_cuda_errors(driver.cuMemcpyHtoD(device_buffer, host_buffer, n_byte))
+                check_cuda_result(driver.cuMemcpyHtoD(device_buffer, host_buffer, n_byte))
             else:
                 raise TypeError(f"Unsupported type for input tensor {name}")
             self.run_hooks("on_trt_input_memcpy_after", input_info=input_info, **kwargs)
@@ -253,7 +251,7 @@ class TensorRTModel(BaseModelHandler):
             name, dtype, shape, n_byte = output_info["name"], output_info["dtype"], \
                 output_info["shape"], output_info["size"]
             host_buffer, device_buffer = output_info["host"], output_info["device"]
-            check_cuda_errors(driver.cuMemcpyDtoH(
+            check_cuda_result(driver.cuMemcpyDtoH(
                 host_buffer.ctypes.data if isinstance(host_buffer, np.ndarray) else host_buffer,
                 device_buffer,
                 n_byte
