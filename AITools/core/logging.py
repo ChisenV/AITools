@@ -1,13 +1,14 @@
 import datetime
+import inspect
 import logging
 import os
 import sys
-from contextlib import contextmanager
 
 from enum import IntEnum
 from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 from pathlib import Path
 from queue import Queue
+from types import FrameType
 from typing import Optional, Dict, Any, List, Union
 from concurrent.futures import ThreadPoolExecutor
 
@@ -46,15 +47,6 @@ class LogManager:
     ERROR = LogLevel.ERROR
     CRITICAL = LogLevel.CRITICAL
     FATAL = CRITICAL
-
-    # _instance = None
-    #
-    # def __new__(cls, *args, **kwargs):
-    #     """Create or get a singleton instance of LogManager."""
-    #     if cls._instance is None:
-    #         cls._instance = super(LogManager, cls).__new__(cls)
-    #         cls._instance.__init__(*args, **kwargs)
-    #     return cls._instance
 
     def __init__(
             self,
@@ -134,6 +126,7 @@ class LogManager:
             self,
             level: Union[int, str],
             msg: str,
+            frame: Optional[FrameType] = None,
             extra: Optional[Dict[str, Any]] = None,
             **kwargs
     ):
@@ -148,7 +141,8 @@ class LogManager:
         """
         if isinstance(level, str):
             level = logging.getLevelName(level.upper())
-        frame = logging.currentframe()
+        if frame is None:
+            frame = inspect.currentframe().f_back
         record = self.logger.makeRecord(
             name=self.logger.name,
             level=level,
@@ -167,19 +161,19 @@ class LogManager:
             handler.handle(record)
 
     def debug(self, msg, **kwargs):
-        self.log(logging.DEBUG, msg, **kwargs)
+        self.log(logging.DEBUG, msg, frame=inspect.currentframe().f_back, **kwargs)
 
     def info(self, msg, **kwargs):
-        self.log(logging.INFO, msg, **kwargs)
+        self.log(logging.INFO, msg, frame=inspect.currentframe().f_back, **kwargs)
 
     def warning(self, msg, **kwargs):
-        self.log(logging.WARNING, msg, **kwargs)
+        self.log(logging.WARNING, msg, frame=inspect.currentframe().f_back, **kwargs)
 
     def error(self, msg, **kwargs):
-        self.log(logging.ERROR, msg, **kwargs)
+        self.log(logging.ERROR, msg, frame=inspect.currentframe().f_back, **kwargs)
 
     def critical(self, msg, **kwargs):
-        self.log(logging.CRITICAL, msg, **kwargs)
+        self.log(logging.CRITICAL, msg, frame=inspect.currentframe().f_back, **kwargs)
 
     def close(self):
         """Shut down all handlers"""
@@ -272,7 +266,3 @@ def get_logger(name=__name__, handlers=None):
         default_file_handler=False
     )
     return logger
-
-
-
-

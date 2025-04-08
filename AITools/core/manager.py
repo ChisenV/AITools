@@ -6,7 +6,8 @@ from typing import Callable, Dict, List, Optional, Tuple, Union, ItemsView
 
 __all__ = [
     'ComponentManager',
-    'COMPONENT_MANAGERS'
+    'COMPONENT_MANAGERS',
+    'get_component_manager'
 ]
 
 COMPONENT_MANAGERS: List['ComponentManager'] = []
@@ -20,6 +21,7 @@ class ComponentManager:
     Args:
         name (str): The name of component.
         comp_name_getter (Callable): The function to get the name of component.
+        append_global (bool): Whether to append the manager to the global list. Default: True.
 
     Returns:
         A callable object of ComponentManager.
@@ -67,7 +69,9 @@ class ComponentManager:
         self._components_dict: Dict[str, Union[type, Callable]] = {}
         self._name = name
         self._name_getter = comp_name_getter or (lambda x: x.__name__)
+        self.is_global = False
         if append_global:
+            self.is_global = True
             COMPONENT_MANAGERS.append(self)
 
     def __len__(self) -> int:
@@ -165,3 +169,14 @@ class ComponentManager:
             else:
                 self._add_single_component(components, allow_overwrite)
             return components
+
+
+def get_component_manager(
+        name: str,
+        default=ComponentManager(append_global=False)
+) -> Optional[ComponentManager]:
+    for m in COMPONENT_MANAGERS:
+        if m.name == name:
+            return m
+    default._name = name
+    return default

@@ -26,3 +26,11 @@ class BasePreProcessor(BaseProcessor, ABC):
 class BasePostProcessor(BaseProcessor, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+
+class ComposeProcessor(BaseProcessor, ABC):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def run(self, data: Any, *args, **kwargs) -> Any:
+        pass

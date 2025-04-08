@@ -1,22 +1,51 @@
-from AITools import Config, Builder, logger
+from AITools import Config, Builder, get_logger
 from AITools.core.config import dump as config_dump
 
-yaml_file = r"E:\python_project\PaddleSeg-release-2.9\configs\pp_liteseg\wirebonding_fusion_pp_liteseg_stdc1_camvid_1024x864_10k.yml"
+yaml_file = r"E:\python_project\PaddleSeg-release-2.9\configs\pp_liteseg\pp_liteseg_stdc2_camvid_960x720_10k_for_test.yml"
 xml_file = r"E:\python_ai_dataset\General-SeWen-XiDong-Version3-788Pics\train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
+
+logger = get_logger(__name__)
 
 
 def test_config_init():
     print()
 
-    cfg = Config(yaml_file, opt=
-                 ["train_dataset.num_classes=6",
-                  "class_type.a=1",
-                  "class_type.b=2"],
-                 )
-    print(cfg)
+    cfg = Config(
+        yaml_file,
+        opts=[
+            "train_dataset.num_classes=6",
+            "class_type.a=1",
+            "class_type.b=2"
+        ],
+    )
+    logger.info("cfg:")
+    for l in str(cfg).split('\n'):
+        logger.log(logger.INFO, f"{l}")
+    print(*cfg)
+    m = {}
+    if not m:
+        print("True")
 
-    for k, v in cfg.items():
-        print(k, v)
+    # cfg3 = Config()
+    # cfg3.update(cfg)
+    # print(cfg3)
+    #
+    # cfg2 = Config(
+    #     p=1,
+    #     e=2,
+    #     opts=[
+    #         "train_dataset.num_classes=6",
+    #         "class_type.a=66",
+    #         "class_type.b=99"
+    #     ]
+    # )
+    # for l in str(cfg2).split('\n'):
+    #     logger.log(logger.INFO, f"{l}")
+    #
+    # logger.log(logger.INFO, f"===============")
+    # cfg.update(cfg2)
+    # for l in str(cfg).split('\n'):
+    #     logger.log(logger.INFO, f"{l}")
 
 
 def test_config_get_copy():
@@ -50,7 +79,6 @@ def test_builder_config():
 
 def test_config_xml():
     print()
-
     cfg = Config(xml_file)
     for l in str(cfg).split('\n'):
         logger.log(logger.INFO, f"{l}")

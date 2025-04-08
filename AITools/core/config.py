@@ -10,22 +10,20 @@ __all__ = [
     'BASE_KEY',
     'INHERIT_KEY',
     'TYPE_KEY',
-    'Config'
+    'Config',
+    'dump'
 ]
 
-from . import manager
+from . import manager, logging
 from AITools.base.plugin_protocol_def import ParserPlugin
 
-_PARSERS_MANAGER_NAME = 'parsers'
-for c in manager.COMPONENT_MANAGERS:
-    if c.name == _PARSERS_MANAGER_NAME:
-        SUPPORTED_PARSERS = c
-    else:
-        SUPPORTED_PARSERS = manager.ComponentManager(_PARSERS_MANAGER_NAME, append_global=False)
-
 BASE_KEY = '_base_'
-INHERIT_KEY = '_inherit_'
+INHERIT_KEY = '_inherited_'
 TYPE_KEY = '_type_'
+
+_PARSERS_MANAGER_NAME = 'parsers'
+
+logger = logging.get_logger(__name__)
 
 
 class Config(object):
@@ -39,9 +37,9 @@ class Config(object):
 
     def __init__(
             self,
-            path: Optional[str] = None,
-            *,
+            path: Union[str, Path] = None,
             opts: Optional[list] = None,
+            *,
             cfg_name: str = None,
             cfg_parser: Optional[Type[ParserPlugin]] = None,
             cfg_base_key: str = BASE_KEY,
@@ -67,14 +65,11 @@ class Config(object):
         self._strict_mode = cfg_strict_mode
         self._cfg = {}
 
-        # Load configuration from file (if any)
-        file_config = self._load_config_file(path) if path else {}
-
-        #  Merge all configuration sources (file < base class < kwargs < opts)
-        merged = self._merge_configs(file_config, os.path.dirname(path) if path else None)
+        # Merge all configuration sources (base class < file < kwargs < opts)
+        merged = self._load_config_file(path) if path else {}  # Load from file (if any)
         merged = self._deep_merge(merged, kwargs)
-        self._merged_dict = self._update_with_cli_opts(merged, opts or [])
-        self._cfg = copy.deepcopy(self._merged_dict)
+        merged = self._update_with_cli_opts(merged, opts or [])
+        self._cfg = copy.deepcopy(merged)
 
     @classmethod
     def get_parser(cls, extension: str) -> Type[ParserPlugin]:
@@ -87,58 +82,26 @@ class Config(object):
         Raises:
             ValueError: Unsupported file format
         """
-        if len(SUPPORTED_PARSERS) == 0:
+        supported_parsers = manager.get_component_manager(_PARSERS_MANAGER_NAME)
+        if len(supported_parsers) == 0:
             raise ValueError("No parser registered, please register a parser first."
                              "Using @manager.PARSER.register_component decorator to register a parser.")
         ext = extension.lower()
-        for name, parser in SUPPORTED_PARSERS.items():
+        for name, parser in supported_parsers.items():
             if getattr(parser, 'parsable_file_extensions', None) and ext in parser.parsable_file_extensions():
                 return parser
         raise ValueError(f"No found parser supporting this file format: '{ext}', "
-                         f"supported {SUPPORTED_PARSERS}")
+                         f"supported {supported_parsers}")
 
     @property
     def dic(self) -> Dict[str, Any]:
         """Get a safe copy of the configuration dictionary"""
         return copy.deepcopy(self._cfg)
 
-    def _load_config_file(self, path: str) -> Dict[str, Any]:
-        """Load and parse the configuration file"""
-        path = Path(path).resolve()
-        if not path.exists():
-            raise FileNotFoundError(f"Config file not found: {path}")
-
-        self._parser = self._parser if self._parser else self.get_parser(path.suffix)
-        config = self._parser.load(path)
-
-        # Handle inheritance
-        if self.cfg_base_key in config:
-            base_dir = path.parent
-            base_files = config[self.cfg_base_key]
-            base_files = [base_files] if isinstance(base_files, str) else base_files
-            for bf in base_files:
-                base_path = bf if Path(bf).is_absolute() else base_dir / bf
-                base_config = Config(
-                    path=str(base_path),
-                    strict_mode=self._strict_mode,
-                    parser=self._parser
-                ).dic
-                config = self._deep_merge(base_config, config)
-
-        return config
-
-    def __getitem__(self, key: str) -> Any:
-        return self._cfg[key]
-
-    def __setitem__(self, key: str, value: Any):
-        self._cfg[key] = value
-
-    def __iter__(self):
-        return iter(self._cfg)
-
-    def __contains__(self, key: str) -> bool:
-        """Check whether the key is in config"""
-        return key in self._cfg
+    def update(self, config: Union['Config', Dict[str, Any]]) -> 'Config':
+        """Update the configuration"""
+        self._cfg = self._deep_merge(self._cfg, config if isinstance(config, dict) else config.dic)
+        return self
 
     @property
     def name(self) -> str:
@@ -165,13 +128,44 @@ class Config(object):
         """
         return self._cfg.setdefault(key, default)
 
-    def _deep_merge(self, base: Dict[str, Any], update: Dict[str, Any]) -> Dict[str, Any]:
+    def _load_config_file(self, path: str) -> Dict[str, Any]:
+        """Load and parse the configuration file"""
+        path = Path(path).resolve()
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+
+        self._parser = self._parser if self._parser else self.get_parser(path.suffix)
+        config = self._parser.load(path)
+
+        # Handle inheritance
+        if self.cfg_base_key in config:
+            base_dir = path.parent
+            base_files = config[self.cfg_base_key]
+            base_files = [base_files] if isinstance(base_files, str) else base_files
+            for bf in base_files:
+                print(f"Loading base config: {bf}")
+                base_path = bf if Path(bf).is_absolute() else base_dir / bf
+                base_config = Config(
+                    path=base_path,
+                    cfg_parser=self._parser,
+                    cfg_strict_mode=self._strict_mode
+                ).dic
+                config = self._deep_merge(base_config, config)
+
+        return config
+
+    def _deep_merge(
+            self,
+            base: Dict[str, Any],
+            update: Dict[str, Any],
+            inherited: bool = True
+    ) -> Dict[str, Any]:
         """Recursively merge two dictionaries"""
-        merged = copy.deepcopy(base)
+        merged = copy.deepcopy(base) if update.get(self.cfg_inherit_key, inherited) else {}
 
         for key, val in update.items():
             # Key check in strict mode
-            if self._strict_mode and base and key not in base:
+            if self._strict_mode and merged and key not in merged:
                 raise KeyError(f"Unexpected config key: {key}")
 
             if isinstance(val, dict) and key in merged and isinstance(merged[key], dict):
@@ -180,23 +174,6 @@ class Config(object):
                 merged[key] = copy.deepcopy(val)
 
         return merged
-
-    def _merge_configs(self, config: Dict[str, Any], base_dir: str) -> Dict[str, Any]:
-        """Recursively merge base configs"""
-        base_files = config.get(self.cfg_base_key, [])
-        if isinstance(base_files, str):
-            base_files = [base_files]
-
-        merged = {}
-        for bf in base_files:
-            base_path = bf if os.path.isabs(bf) else os.path.join(base_dir, bf)
-            if not os.path.exists(base_path):
-                raise FileNotFoundError(f"Base config not found: {base_path}")
-
-            base_config = Config(base_path, strict_mode=self._strict_mode).dic
-            merged = self._deep_merge(base_config, merged)
-
-        return self._deep_merge(merged, config)
 
     def _update_with_cli_opts(self, config: Dict[str, Any], opts: List[str]) -> Dict[str, Any]:
         """Safely apply CLI overrides"""
@@ -232,12 +209,25 @@ class Config(object):
 
         return updated
 
-    def __str__(self) -> str:
-        return ("+ " + "\n+ ".join(yaml.dump(self._cfg, allow_unicode=True, sort_keys=False).split("\n")[:-1]))
-
     def dump(self, path: str, overwrite: bool = True) -> None:
         """Save the current configuration to a file"""
         dump(self, path, self._parser, overwrite)
+
+    def __getitem__(self, key: str) -> Any:
+        return self._cfg[key]
+
+    def __setitem__(self, key: str, value: Any):
+        self._cfg[key] = value
+
+    def __iter__(self):
+        return iter(self._cfg)
+
+    def __contains__(self, key: str) -> bool:
+        """Check whether the key is in config"""
+        return key in self._cfg
+
+    def __str__(self) -> str:
+        return "+ " + "\n+ ".join(yaml.dump(self._cfg, allow_unicode=True, sort_keys=False).split("\n")[:-1])
 
 
 def dump(

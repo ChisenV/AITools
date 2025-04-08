@@ -23,7 +23,8 @@ __all__ = [
     "OCRLabel", 
     "MaskFormat", 
     "InstanceSegmentationLabel",
-    "DataItem"
+    "DataItem",
+    "IOConfig",
 ]
 
 
@@ -252,8 +253,10 @@ class IOConfig:
     name: str
     dtype: Type[np.int8 | np.int32 | np.float16 | np.float32 | np.uint8 | bool]
     shape: Union[Tuple[int], List[int]]
+    size: int
     host: int
     device: int
+    device_id: int = 0
 
 
 @dataclass
@@ -285,7 +288,6 @@ def coco_to_protocol(coco_ann, image_info):
         ),
         labels=labels
     )
-
 
 
 def convert_coco_instance(coco_ann, img_info, img_array):
@@ -344,7 +346,7 @@ class MaskDecoder:
 
 def instances_to_semantic(item: DataItem) -> DataItem:
     """将实例分割转换为语义分割（类别聚合）"""
-    h, w = item.image.image.shape[:2]
+    h, w = item.image.data.shape[:2]
     semantic_mask = np.zeros((h, w), dtype=np.int32)
 
     for label in item.labels:

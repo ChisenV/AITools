@@ -9,6 +9,8 @@ __all__ = [
     "BaseModelHandler",
 ]
 
+from AITools.core import Config
+
 
 class ModelType(Enum):
     TRAINING = "training"
@@ -30,12 +32,12 @@ class BaseModelHandler(ABC):
     def __init__(
             self,
             model_path: Union[str, Path],
-            config: Union[Dict[str, Any]],
+            config: Union[Config, Dict[str, Any]],
             **kwargs
     ):
         self.model_path = Path(model_path)
-        self.hooks: Dict[str, List[Callable]] = kwargs.pop("hooks", {})
-        self.hooks.update(config.get("hooks", {}))
+        self.hooks: Dict[str, List[Callable]] = config.get("hooks", {})
+        self.hooks.update(kwargs.pop("hooks", {}))
         self.config = config
         self.config.update(kwargs)
         self._initialized = False

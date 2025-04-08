@@ -13,6 +13,7 @@ __all__ = [
 
 from . import check_cuda_result, int_address_to_ndarray, BACKENDS
 from AITools.base.model_def import BaseModelHandler
+from AITools.base.vision_def import IOConfig
 from AITools.core.config import Config
 
 _TENSORRT_MODEL_SUPPORT_SUFFIX = [".trt", ".engine", ".onnx"]
@@ -34,11 +35,11 @@ class TensorRTModel(BaseModelHandler):
 
     def __init__(
             self,
-            model_path: Union[str, Path],
+            path: Union[str, Path],
             config: Union[Config, Dict[str, Any]],
             **kwargs
     ):
-        super().__init__(model_path=model_path, config=config, **kwargs)
+        super().__init__(model_path=path, config=config, **kwargs)
         self._model_file = self._resolve_model_file()
         self._need_build = self._model_file.suffix in _TENSORRT_ONNX_SUPPORT_SUFFIX
         self._model_info = OrderedDict()
@@ -201,23 +202,13 @@ class TensorRTModel(BaseModelHandler):
             device_buffer = check_cuda_result(driver.cuMemAlloc(n_byte))
 
             if is_input:
-                self._model_info.setdefault("inputs", []).append({
-                    "name": name,
-                    "dtype": self.nptype(dtype),
-                    "shape": shape,
-                    "host": host_buffer,
-                    "device": device_buffer,
-                    "size": n_byte
-                })
+                self._model_info.setdefault("inputs", []).append(
+                    IOConfig(name, dtype, shape, n_byte, host_buffer, device_buffer)
+                )
             else:
-                self._model_info.setdefault("outputs", []).append({
-                    "name": name,
-                    "dtype": self.nptype(dtype),
-                    "shape": shape,
-                    "host": host_buffer,
-                    "device": device_buffer,
-                    "size": n_byte
-                })
+                self._model_info.setdefault("outputs", []).append(
+                    IOConfig(name, dtype, shape, n_byte, host_buffer, device_buffer)
+                )
             self._buffers[name] = [host_buffer, device_buffer, n_byte, is_input]
             self.trt_context.set_tensor_address(name, device_buffer)
 
@@ -227,11 +218,11 @@ class TensorRTModel(BaseModelHandler):
 
         # Copy the input data to the GPU
         for input_info in self._model_info["inputs"]:
-            if input_info["name"] not in input_data:
-                raise ValueError(f"Missing input data for input tensor {input_info['name']}")
-            name, dtype, shape, n_byte = input_info["name"], input_info["dtype"], \
-                input_info["shape"], input_info["size"]
-            host_buffer, device_buffer = input_info["host"], input_info["device"]
+            if input_info.name not in input_data:
+                raise ValueError(f"Missing input data for input tensor {input_info.name}")
+            name, dtype, shape, n_byte = input_info.name, input_info.dtype, \
+                input_info.shape, input_info.size
+            host_buffer, device_buffer = input_info.host, input_info.device
             if isinstance(host_buffer, np.ndarray):
                 np.copyto(host_buffer, input_data[name])  # TODO move this memory copy operation to preprocess stage
                 check_cuda_result(driver.cuMemcpyHtoD(device_buffer, host_buffer.ctypes.data, n_byte))
@@ -248,9 +239,9 @@ class TensorRTModel(BaseModelHandler):
 
         outputs = {}
         for output_info in self._model_info["outputs"]:
-            name, dtype, shape, n_byte = output_info["name"], output_info["dtype"], \
-                output_info["shape"], output_info["size"]
-            host_buffer, device_buffer = output_info["host"], output_info["device"]
+            name, dtype, shape, n_byte = output_info.name, output_info.dtype, \
+                output_info.shape, output_info.size
+            host_buffer, device_buffer = output_info.host, output_info.device
             check_cuda_result(driver.cuMemcpyDtoH(
                 host_buffer.ctypes.data if isinstance(host_buffer, np.ndarray) else host_buffer,
                 device_buffer,

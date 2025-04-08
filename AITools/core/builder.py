@@ -2,7 +2,7 @@ import copy
 from typing import Optional, Dict, Any, Union, Callable
 
 from .config import Config, TYPE_KEY
-from .logger import get_logger
+from .logging import get_logger
 from .manager import COMPONENT_MANAGERS
 
 logger = get_logger(__name__)

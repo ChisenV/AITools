@@ -10,7 +10,9 @@ __all__ = [
     "parse_yolo_det_label",
     "parse_ppocr_label",
     "parse_voc_det_label",
-    "yolo_to_absolute"
+    "yolo_to_absolute",
+    "compute_affine_matrix",
+    "invert_affine_transform"
 ]
 
 from .parser import XMLParser
@@ -190,3 +192,40 @@ def yolo_to_absolute(bbox: BoundingBox, width: int, height: int):
         normalized=False
     )
 
+
+# Image process functions ----------------------------------------------------------------------------------------------
+def invert_affine_transform(im, om):
+    i00 = im[0][0]
+    i01 = im[0][1]
+    i02 = im[0][2]
+    i10 = im[1][0]
+    i11 = im[1][1]
+    i12 = im[1][2]
+
+    D = i00 * i11 - i01 * i10
+    D = 1.0 / D if D != 0 else 0
+
+    A11 = i11 * D
+    A12 = -i01 * D
+    A21 = -i10 * D
+    A22 = i00 * D
+
+    om[0][0] = A11
+    om[0][1] = A12
+    om[0][2] = -A11 * i02 - A12 * i12
+    om[1][0] = A21
+    om[1][1] = A22
+    om[1][2] = -A21 * i02 - A22 * i12
+
+
+def compute_affine_matrix(from_size, to_size):
+    scale_x = (float(to_size[0]) / (float(from_size[0])))
+    scale_y = (float(to_size[1]) / (float(from_size[1])))
+    scale = scale_x if scale_x < scale_y else scale_y
+
+    src2dst = [[scale, 0, -scale * from_size[0] * 0.5 + to_size[0] * 0.5 + scale * 0.5 - 0.5],
+               [0, scale, -scale * from_size[1] * 0.5 + to_size[1] * 0.5 + scale * 0.5 - 0.5]]
+    dst2src = [[0, 0, 0], [0, 0, 0]]
+    invert_affine_transform(src2dst, dst2src)
+
+    return np.array(src2dst), np.array(dst2src)
