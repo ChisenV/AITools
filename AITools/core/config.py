@@ -143,7 +143,6 @@ class Config(object):
             base_files = config[self.cfg_base_key]
             base_files = [base_files] if isinstance(base_files, str) else base_files
             for bf in base_files:
-                print(f"Loading base config: {bf}")
                 base_path = bf if Path(bf).is_absolute() else base_dir / bf
                 base_config = Config(
                     path=base_path,

@@ -1,0 +1,3 @@
+[submodule "libs/CGraph"]
+	path = libs/CGraph
+	url = https://github.com/ChunelFeng/CGraph.git

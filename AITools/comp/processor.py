@@ -19,7 +19,7 @@ class WarpAffineNorm2NCHW(BasePreProcessor):
         if ih != H or iw != W:
             self.src2dst, self.dst2src = F.compute_affine_matrix([iw, ih], [W, H])
             data = cv2.warpAffine(
-                ImageData.data,
+                im.to_numpy(),
                 self.src2dst,
                 [W, H],
                 flags=cv2.INTER_LINEAR,
