@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 from AITools.base.process_def import BasePreProcessor
-from AITools.base.vision_def import IOConfig, ImageData
+from AITools.base.vision_def import IOConfig, ImageData, ImageFormat
 from AITools.comp import functions as F
 
 
@@ -27,11 +27,21 @@ class WarpAffineNorm2NCHW(BasePreProcessor):
                 borderValue=(128, 128, 128)
             )
             data = data.astype(self.model_input.dtype) / 255.0
-            if im.format == 'BGR':
-                data = data[..., ::-1]
-            if len(data.shape) == 3:
-                data = np.ascontiguousarray(data.transpose((2, 0, 1)))[np.newaxis, :, :, :]
-        return None
+        else:
+            data = im.to_numpy().astype(self.model_input.dtype) / 255.0
+        if im.format == 'BGR':
+            data = data[..., ::-1]
+        if len(data.shape) == 3:
+            data = np.ascontiguousarray(data.transpose((2, 0, 1)))[np.newaxis, :, :, :]
+
+        return ImageData(
+            data=data,
+            path=im.path,
+            format=ImageFormat.NCHW,
+            shape=data.shape,
+            id=im.id,
+            input_name=im.input_name
+        )
 
     def __call__(self, *args, **kwargs):
-        pass
+        self.run(*args, **kwargs)

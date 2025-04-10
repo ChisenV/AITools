@@ -59,16 +59,18 @@ class ImageType(StrEnum):
 @dataclass
 class ImageFormat(StrEnum):
     """图像数据存储模式"""
-    RGB = "rgb"      # RGB格式（默认）
-    BGR = "bgr"      # BGR格式
-    GRAY = "gray"    # 灰度图
-    RGBA = "rgba"    # RGBA格式
-    CMYK = "cmyk"    # CMYK格式
-    YUV = "yuv"      # YUV格式
-    HSV = "hsv"      # HSV格式
-    LAB = "lab"      # LAB格式
-    XYZ = "xyz"      # XYZ格式
-    YCrCb = "ycrcb"  # YCrCb格式
+    RGB = "rgb"      # RGB格式（默认）, (h, w, c)
+    BGR = "bgr"      # BGR格式, (h, w, c)
+    GRAY = "gray"    # 灰度图, (h, w)
+    RGBA = "rgba"    # RGBA格式, (h, w, c)
+    CMYK = "cmyk"    # CMYK格式, (h, w, c)
+    YUV = "yuv"      # YUV格式, (h, w, c)
+    HSV = "hsv"      # HSV格式, (h, w, c)
+    LAB = "lab"      # LAB格式, (h, w, c)
+    XYZ = "xyz"      # XYZ格式, (h, w, c)
+    YCrCb = "ycrcb"  # YCrCb格式, (h, w, c)
+    CHW = "chw"      # CHW格式, (c, h, w)
+    NCHW = "nchw"    # NCHW格式, (n, c, h, w)
 
 
 @dataclass

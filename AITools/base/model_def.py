@@ -9,7 +9,7 @@ __all__ = [
     "BaseModelHandler",
 ]
 
-from AITools.core import Config
+from AITools.core.config import Config
 
 
 class ModelType(Enum):
