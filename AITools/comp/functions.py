@@ -32,6 +32,7 @@ FUNCTIONS = ComponentManager("functions")
 
 # OpenCV Multilanguage-friendly functions ------------------------------------------------------------------------------
 _imshow = cv2.imshow  # copy to avoid recursion errors
+_waitkey = cv2.waitKey
 
 
 @FUNCTIONS.register_component
@@ -70,15 +71,19 @@ def imwrite(filename: str, img: np.ndarray, params=None):
 
 
 @FUNCTIONS.register_component
-def imshow(winname: str, mat: np.ndarray):
+def imshow(winname: str, mat: np.ndarray, delay: int = None):
     """
     Displays an image in the specified window.
 
     Args:
         winname (str): Name of the window.
         mat (np.ndarray): Image to be shown.
+        delay (int, optional): Delay in milliseconds. If 0, the window will stay open until the user closes it.
+        If negative, the window will stay open indefinitely. Defaults to None.
     """
     _imshow(winname.encode("unicode_escape").decode(), mat)
+    if delay is not None:
+        _waitkey(delay)
 
 
 # Dataset label parser -------------------------------------------------------------------------------------------------
@@ -142,7 +147,7 @@ def parse_voc_det_label(image_path: str, label_path: str):
     else:
         anno_label = None
     labels = None
-    objects = anno_label['annotation'].get("object", None)
+    objects = anno_label['annotation'].get("object", None) if anno_label else []
     if isinstance(objects, dict):
         objects = [objects]
     if objects:
@@ -194,6 +199,7 @@ def yolo_to_absolute(bbox: BoundingBox, width: int, height: int):
 
 
 # Image process functions ----------------------------------------------------------------------------------------------
+@FUNCTIONS.register_component
 def invert_affine_transform(im, om):
     i00 = im[0][0]
     i01 = im[0][1]
@@ -218,6 +224,7 @@ def invert_affine_transform(im, om):
     om[1][2] = -A21 * i02 - A22 * i12
 
 
+@FUNCTIONS.register_component
 def compute_affine_matrix(from_size, to_size):
     scale_x = (float(to_size[0]) / (float(from_size[0])))
     scale_y = (float(to_size[1]) / (float(from_size[1])))
