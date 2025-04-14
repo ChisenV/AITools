@@ -4,6 +4,7 @@ import json
 import math
 import os
 import random
+import shutil
 import warnings
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,9 @@ from typing import (
     Union
 )
 
+import cv2
 import numpy as np
+from tqdm import tqdm
 
 __all__ = [
     "OCRDatasetV2",
@@ -27,7 +30,7 @@ __all__ = [
 from AITools.base.dataset_def import IterableDataset, T_co
 from AITools.base.vision_def import IMG_FORMATS
 from AITools.core.manager import ComponentManager
-from AITools.comp.functions import parse_ppocr_label
+from AITools.comp.functions import parse_ppocr_label, imread, imwrite
 
 DATASETS = ComponentManager("datasets")
 
@@ -508,7 +511,8 @@ class OCRDatasetV2(IterableDataset):
         self._place_map[idx] = root_idx
         self._dir_basename_map[dirname].add(basename)
 
-    def split(self, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, specified=None):
+    def split(self, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True,
+              specified=None):
         if ratio is None:
             ratio = [0.6, 0.2, 0.2]
         elif isinstance(ratio, float):
@@ -526,24 +530,32 @@ class OCRDatasetV2(IterableDataset):
         if seed is not None:
             random.seed(seed)
 
-        shuffled = list(self._image_map.keys())
-        random.shuffle(shuffled)
-        total = len(shuffled)
-
-        lengths = []
-        for i in range(len(ratio)):
-            if i < len(ratio) - 1:
-                length = int(ratio[i] * total)
-                lengths.append(length)
-            else:
-                lengths.append(total - sum(lengths))
+        shuffled_list = []
+        if grouped:
+            for gid, group in self.get_root_groups().items():
+                random.shuffle(group)
+                shuffled_list.append(group)
+        else:
+            shuffled = list(self._image_map.keys())
+            random.shuffle(shuffled)
+            shuffled_list = [shuffled]
 
         subsets = {}
-        start_idx = 0
-        for i, length in enumerate(lengths):
-            end_idx = start_idx + length
-            subsets[subset_name[i]] = sorted(shuffled[start_idx:end_idx])
-            start_idx = end_idx
+        for shuffled in shuffled_list:
+            total = len(shuffled)
+            lengths = []
+            start_idx = 0
+            for i in range(len(ratio)):
+                if i < len(ratio) - 1:
+                    length = int(ratio[i] * total)
+                else:
+                    length = total - sum(lengths)
+                lengths.append(length)
+                end_idx = start_idx + length
+                subsets.setdefault(subset_name[i], []).extend(shuffled[start_idx:end_idx])
+                start_idx = end_idx
+        for name, subset in subsets.items():
+            subsets[name] = sorted(subset)
 
         return subsets
 
@@ -801,3 +813,292 @@ class OCRCLSDatasetV2(OCRDatasetV2):
         new._categories_i2s = copy.deepcopy(self._categories_i2s)
         new._categories_s2i = copy.deepcopy(self._categories_s2i)
         return new
+
+
+def dump(
+        dataset: OCRDatasetV2,
+        destination: str,
+        image_file_op: str = "copy",
+        custom_image_file_op: Callable = None,
+        label_file_name: str = "Label.txt",
+        label_file_encoding="utf-8",
+        overwriting: bool = False,
+        tqdm_enable: bool = True
+):
+    """ Dump dataset to a new directory.
+    @param dataset: OCRDatasetV2
+    @param destination: Destination directory
+    @param image_file_op: Operation on image files, "copy" or "move"
+    @param custom_image_file_op: Custom image file operation
+    @param label_file_name: Label file name
+    @param label_file_encoding: Label file encoding
+    @param overwriting: Whether to overwrite the destination directory
+    @param tqdm_enable: Whether to enable tqdm progress bar
+    """
+    if not dataset:
+        raise ValueError("Dataset is empty.")
+    if image_file_op == "copy" and custom_image_file_op is None:
+        file_op = shutil.copy
+    elif image_file_op == "move" and custom_image_file_op is None:
+        file_op = shutil.move
+    elif callable(custom_image_file_op):
+        file_op = custom_image_file_op
+    else:
+        raise ValueError(f"Unsupported image file operation: '{image_file_op}'")
+
+    if os.path.exists(destination):
+        if os.listdir(destination) and not overwriting:
+            raise FileExistsError(f"Destination path {destination} is not empty")
+    else:
+        os.makedirs(destination, exist_ok=True)
+
+    opened_files = {}
+    try:
+        iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
+        if dataset.with_label:
+            # Unified processing for labeled data
+            for img_path, label_data in iterator:
+                img_basename = os.path.basename(img_path)
+                label_str = dataset.fmt_label_dumps(label_data)
+
+                # Determine destination directory
+                if len(dataset.directories) > 1:
+                    src_dir = os.path.dirname(img_path)
+                    dir_name = os.path.basename(src_dir)
+                    dst_dir = os.path.join(destination, dir_name)
+                else:
+                    dir_name = os.path.basename(destination)
+                    dst_dir = destination
+
+                os.makedirs(dst_dir, exist_ok=True)
+                file_op(img_path, os.path.join(dst_dir, img_basename))
+                label_file = os.path.join(dst_dir, label_file_name)
+                if label_file not in opened_files:
+                    opened_files[label_file] = open(label_file, "w", encoding=label_file_encoding)
+                opened_files[label_file].write(f"{dir_name}/{img_basename}\t{label_str}\n")
+        else:
+            # Unified processing for unlabeled data
+            for img_path in iterator:
+                img_basename = os.path.basename(img_path)
+                if len(dataset.directories) > 1:
+                    src_dir = os.path.dirname(img_path)
+                    dir_name = os.path.basename(src_dir)
+                    dst_dir = os.path.join(destination, dir_name)
+                else:
+                    dst_dir = destination
+
+                os.makedirs(dst_dir, exist_ok=True)
+                file_op(img_path, os.path.join(dst_dir, img_basename))
+    finally:
+        for file_handle in opened_files.values():
+            file_handle.close()
+
+
+def split(src_dir: str, dst_dir: str, set_type='det', path_collect_func=None, seed=None, subset_name=None, ratio=None,
+          overwriting=False, label_file_name="Label.txt", label_file_encoding="utf-8", parallel: bool = False,
+          normative: bool = True):
+    if set_type == 'det':
+        DatasetClass = OCRDatasetV2
+    elif set_type == 'rec':
+        DatasetClass = OCRRECDatasetV2
+    elif set_type == 'cls':
+        DatasetClass = OCRCLSDatasetV2
+    else:
+        raise ValueError(f"Unsupported set_type: '{set_type}'")
+    if path_collect_func is None:
+        def path_collect_func(p):
+            return [os.path.join(p, i) for i in os.listdir(p) if os.path.isdir(os.path.join(p, i))]
+    else:
+        if not callable(path_collect_func):
+            raise ValueError(f"Unsupported path_collect_func: '{path_collect_func}'")
+    if ratio is None:
+        ratio = [0.5, 0.2, 0.3]
+    elif isinstance(ratio, float):
+        ratio = [ratio, 1 - ratio]
+    if subset_name is None:
+        subset_name = ['train', 'val', 'test']
+    if len(ratio) > len(subset_name):
+        raise ValueError("The length of subset_name and ratio must be equal")
+    datasets = []
+    dataset_split = {subset_name[i]: [] for i, s_name in enumerate(ratio)}
+
+    def _wash_and_dump(_rid, _path, _dataset, _set_idxes, _set_name, _label_file_name, _label_file_encoding):
+        _dst_dir_name = os.path.basename(_path)
+        _dst_sub_dir = os.path.join(dst_dir, _set_name, _dst_dir_name)
+        try:
+            new = _dataset.copy()
+            new.wash(_set_idxes, 'keep')
+            dump(new, _dst_sub_dir,
+                 label_file_name=_label_file_name,
+                 label_file_encoding=_label_file_encoding,
+                 overwriting=overwriting,
+                 tqdm_enable=False)
+        except Exception as e:
+            print(f"Error occurred while processing subset {_rid}: {e}")
+            return False, _rid
+        return True, _rid
+
+    def _process(_rid, _path, _dataset, _set_idxes, _set_name, _label_file_name, _label_file_encoding):
+        _dst_dir_name = os.path.basename(_path)
+        _dst_sub_dir = os.path.join(dst_dir, _set_name, _dst_dir_name)
+        if not os.path.exists(_dst_sub_dir):
+            os.makedirs(_dst_sub_dir, exist_ok=True)
+        else:
+            if not overwriting:
+                raise FileExistsError(f"Directory '{_dst_sub_dir}' already exists")
+        with open(os.path.join(_dst_sub_dir, _label_file_name), "w", encoding=_label_file_encoding) as f:
+            for idx in _set_idxes:
+                im, la = _dataset[idx]
+                _im_basename = os.path.basename(im)
+                _la_dump_str = _dataset.fmt_label_dumps(la)
+                shutil.copy(im, _dst_sub_dir)
+                f.write("{}/{}\t{}\n".format(_dst_dir_name, _im_basename, _la_dump_str))
+        dataset_split[_set_name].append(_set_idxes)
+
+    def _slowly_dump(_path, _subset, _dataset):
+        """ Slow """
+        for _rid, (_set_name, _set_idxes) in enumerate(_subset.items()):
+            _process(_rid, _path, _dataset, _set_idxes, _set_name, label_file_name, label_file_encoding)
+
+    def _normatively_dump(_path, _subset, _dataset):
+        """ Fast and safe """
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for _rid, (_set_name, _set_idxes) in enumerate(_subset.items()):
+                futures.append(
+                    executor.submit(
+                        _wash_and_dump,
+                        _rid, _path, _dataset, _set_idxes, _set_name, label_file_name, label_file_encoding
+                    )
+                )
+                dataset_split[_set_name].append(_set_idxes)
+
+            for future in concurrent.futures.as_completed(futures):
+                success, rid = future.result()
+
+    def _quickly_dump(_path, _subset, _dataset):
+        """ Fastest but not safe """
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for _rid, (_set_name, _set_idxes) in enumerate(_subset.items()):
+                futures.append(
+                    executor.submit(
+                        _process,
+                        _rid, _path, _dataset, _set_idxes, _set_name, label_file_name, label_file_encoding
+                    )
+                )
+            for future in concurrent.futures.as_completed(futures):
+                future.result()
+
+    process_func = _slowly_dump if not parallel else _normatively_dump if normative else _quickly_dump
+    for i, path in enumerate(tqdm(path_collect_func(src_dir), desc="Splitting dataset")):
+        dataset = DatasetClass(path, with_label=True)
+        subsets = dataset.split(seed=seed, ratio=ratio, subset_name=subset_name)
+        process_func(path, subsets, dataset)
+        datasets.append(dataset)
+
+    for n in subset_name:
+        set_dir = os.path.join(dst_dir, n)
+        rec_label_files = [os.path.join(set_dir, p, label_file_name)
+                           for p in os.listdir(set_dir) if os.path.isdir(os.path.join(set_dir, p))]
+        dst_rec_label_file = os.path.join(set_dir, label_file_name)
+        union_label(rec_label_files, dst_rec_label_file)
+
+    return datasets, dataset_split
+
+
+def matting(dataset: OCRDatasetV2, output: str, label_file_name: str = "Label.txt",
+            label_file_encoding: str = "utf-8", overwriting: bool = False):
+    def write(_save_name, _roi, _str, show=False):
+        imwrite(os.path.join(output, _save_name), _roi)
+        f.write(f"{os.path.basename(output)}/{_save_name}\t{_str}\n")
+        if show:
+            plot_box_and_text_v2(roi, [], _str, text_lw_scale=0.3, text_color=(0, 255, 0))
+
+    os.makedirs(output, exist_ok=overwriting)
+    if dataset.with_label:
+        replace_char = ["\n", "\r", "\\", "/", ":", "*", "?", "<", ">", "|", "'", '"']
+        with open(os.path.join(output, label_file_name), "w", encoding=label_file_encoding) as f:
+            for i, (img_path, labels) in enumerate(tqdm(dataset, desc=f"Matting")):
+                basename = os.path.basename(img_path)
+                filename, suffix = basename.rsplit(".", 1)
+                img = imread(img_path)
+
+                try:
+                    if len(labels) == 1:
+                        rect = cv2.boundingRect(np.array(labels[0]["points"]))
+                        if len(img.shape) == 3:
+                            roi = img[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2], :]
+                            save_name = f"{filename}.{suffix}"
+                            write(save_name, roi, labels[0]["transcription"])
+                    else:
+                        for j, l in enumerate(labels):
+                            rect = cv2.boundingRect(np.array(l["points"]))
+                            if len(img.shape) == 3:
+                                roi = img[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2], :]
+                                for c in replace_char:
+                                    l_str = l["transcription"].replace(c, "")
+                                save_name = f"{filename}_{j}_{l_str}.{suffix}"
+                                write(save_name, roi, l["transcription"])
+                except Exception as e:
+                    print(e, img_path, labels if labels is not None else "label is none")
+
+
+def union_label(label_files, dst_file):
+    dst_dirname = os.path.basename(os.path.dirname(dst_file))
+    with open(dst_file, "w", encoding="utf-8") as f:
+        for label_file in label_files:
+            with open(label_file, "r", encoding="utf-8") as f1:
+                for line in f1:
+                    f.write(f"{dst_dirname}/" + line)
+
+
+def plot_box_and_text_v2(image, box, text: str = '', lw=None, text_lw_scale=0.5, box_color=(128, 128, 128),
+                         text_color=(255, 255, 255), font=cv2.FONT_HERSHEY_COMPLEX, text_box=False,
+                         text_box_offset_x: int = 0, text_box_offset_y: int = 0):
+    """
+
+    :param image:
+    :param lw: line width: max(round(sum(img_ori.shape) / 2 * 0.003), 2)
+    :param box: [x1, y1, x2, y2] or [x1, y1, x2, y2, x3, y3, x4, y4]
+    :param text: str
+    :param box_color: (B, G, R)
+    :param text_lw_scale: [0, 1]
+    :param text_color: (B, G, R)
+    :param font: cv2.FONT_HERSHEY_COMPLEX
+    :param text_box: bool, whether to draw text box
+    :param text_box_offset_x: int, >= 0
+    :param text_box_offset_y: int, >= 0
+    :return:
+    """
+    if lw is None:
+        lw = max(round(sum(image.shape) / 2 * 0.003), 1)
+
+    if not len(box) == 0:
+        if not isinstance(box, np.ndarray):
+            box = np.array(box, dtype=np.int32).reshape(-1, 2)
+        elif len(box.shape) != 2:
+            box = box.astype(np.int32).reshape(-1, 2)
+
+        if box.shape[0] == 2:
+            p1, p2 = box[0, :], box[1, :]
+            cv2.rectangle(image, p1, p2, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
+        elif box.shape[0] >= 2:
+            p1, p2 = box[0, :], box[2, :]
+            cv2.polylines(image, [box], True, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
+        else:
+            raise ValueError("box shape is not correct.")
+    else:
+        p1 = [0, 0]
+
+    if text:
+        tf = max(lw - 1, 1)  # font thickness
+        w, h = cv2.getTextSize(text, 0, fontScale=lw * text_lw_scale, thickness=tf)[0]  # text width, height
+        outside = p1[1] - h - 3 >= 0  # label fits outside box
+        p1 = [p1[0] + w * text_box_offset_x, p1[1] + h * text_box_offset_y]
+        p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
+        if text_box:
+            cv2.rectangle(image, p1, p2, box_color, -1, cv2.LINE_AA)  # filled
+        cv2.putText(image, text, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2), font, lw * text_lw_scale,
+                    text_color, thickness=tf, lineType=cv2.LINE_AA)
+    return image

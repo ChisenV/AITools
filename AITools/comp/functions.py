@@ -236,3 +236,56 @@ def compute_affine_matrix(from_size, to_size):
     invert_affine_transform(src2dst, dst2src)
 
     return np.array(src2dst), np.array(dst2src)
+
+
+@FUNCTIONS.register_component
+def plot_box_and_text_v2(image, box, text: str = '', lw=None, text_lw_scale=0.5, box_color=(128, 128, 128),
+                         text_color=(255, 255, 255), font=cv2.FONT_HERSHEY_COMPLEX, text_box=False,
+                         text_box_offset_x: int = 0, text_box_offset_y: int = 0):
+    """
+
+    :param image:
+    :param lw: line width: max(round(sum(img_ori.shape) / 2 * 0.003), 2)
+    :param box: [x1, y1, x2, y2] or [x1, y1, x2, y2, x3, y3, x4, y4]
+    :param text: str
+    :param box_color: (B, G, R)
+    :param text_lw_scale: [0, 1]
+    :param text_color: (B, G, R)
+    :param font: cv2.FONT_HERSHEY_COMPLEX
+    :param text_box: bool, whether to draw text box
+    :param text_box_offset_x: int, >= 0
+    :param text_box_offset_y: int, >= 0
+    :return:
+    """
+    if lw is None:
+        lw = max(round(sum(image.shape) / 2 * 0.003), 1)
+
+    if not len(box) == 0:
+        if not isinstance(box, np.ndarray):
+            box = np.array(box, dtype=np.int32).reshape(-1, 2)
+        elif len(box.shape) != 2:
+            box = box.astype(np.int32).reshape(-1, 2)
+
+        if box.shape[0] == 2:
+            p1, p2 = box[0, :], box[1, :]
+            cv2.rectangle(image, p1, p2, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
+        elif box.shape[0] >= 2:
+            p1, p2 = box[0, :], box[2, :]
+            cv2.polylines(image, [box], True, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
+        else:
+            raise ValueError("box shape is not correct.")
+    else:
+        p1 = [0, 0]
+
+    if text:
+        tf = max(lw - 1, 1)  # font thickness
+        w, h = cv2.getTextSize(text, 0, fontScale=lw * text_lw_scale, thickness=tf)[0]  # text width, height
+        outside = p1[1] - h - 3 >= 0  # label fits outside box
+        p1 = [p1[0] + w * text_box_offset_x, p1[1] + h * text_box_offset_y]
+        p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
+        if text_box:
+            cv2.rectangle(image, p1, p2, box_color, -1, cv2.LINE_AA)  # filled
+        cv2.putText(image, text, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2), font, lw * text_lw_scale,
+                    text_color, thickness=tf, lineType=cv2.LINE_AA)
+    return image
+

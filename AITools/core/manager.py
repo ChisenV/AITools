@@ -99,6 +99,10 @@ class ComponentManager:
     def name(self) -> Optional[str]:
         return self._name
 
+    @name.setter
+    def name(self, value):
+        self._name = str(value)
+
     def _add_single_component(
             self,
             component: Union[type, Callable],
@@ -178,5 +182,5 @@ def get_component_manager(
     for m in COMPONENT_MANAGERS:
         if m.name == name:
             return m
-    default._name = name
+    default.name = name
     return default
