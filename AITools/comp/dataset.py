@@ -24,13 +24,16 @@ from tqdm import tqdm
 __all__ = [
     "OCRDatasetV2",
     "OCRCLSDatasetV2",
-    "OCRRECDatasetV2"
+    "OCRRECDatasetV2",
+    "dump",
+    "matting",
+    "split"
 ]
 
 from AITools.base.dataset_def import IterableDataset, T_co
 from AITools.base.vision_def import IMG_FORMATS
 from AITools.core.manager import ComponentManager
-from AITools.comp.functions import parse_ppocr_label, imread, imwrite
+from AITools.comp.functions import parse_ppocr_label, imread, imwrite, plot_box_and_text_v2
 
 DATASETS = ComponentManager("datasets")
 
@@ -643,6 +646,8 @@ class OCRDatasetV2(IterableDataset):
             img_name = new_image_map[new_index]
             self._dir_basename_map[root_dir].add(img_name)
 
+        return self
+
     def copy(self) -> Any:
         """Creates a deep-copy copy of the current dataset"""
         new = OCRDatasetV2.__new__(OCRDatasetV2)  # Avoid calling __init__
@@ -659,6 +664,7 @@ class OCRDatasetV2(IterableDataset):
 
         new._with_image = self._with_image
         new._with_label = self._with_label
+        new._read_image = self._read_image
         new.subject_to = self.subject_to
         new.transformers = copy.deepcopy(self.transformers)
 
@@ -819,7 +825,7 @@ def dump(
         dataset: OCRDatasetV2,
         destination: str,
         image_file_op: str = "copy",
-        custom_image_file_op: Callable = None,
+        custom_image_label_op: Callable = None,
         label_file_name: str = "Label.txt",
         label_file_encoding="utf-8",
         overwriting: bool = False,
@@ -829,7 +835,7 @@ def dump(
     @param dataset: OCRDatasetV2
     @param destination: Destination directory
     @param image_file_op: Operation on image files, "copy" or "move"
-    @param custom_image_file_op: Custom image file operation
+    @param custom_image_label_op: Custom image file operation
     @param label_file_name: Label file name
     @param label_file_encoding: Label file encoding
     @param overwriting: Whether to overwrite the destination directory
@@ -837,12 +843,22 @@ def dump(
     """
     if not dataset:
         raise ValueError("Dataset is empty.")
-    if image_file_op == "copy" and custom_image_file_op is None:
-        file_op = shutil.copy
-    elif image_file_op == "move" and custom_image_file_op is None:
-        file_op = shutil.move
-    elif callable(custom_image_file_op):
-        file_op = custom_image_file_op
+    if custom_image_label_op is None:
+        if image_file_op == "copy":
+            img_op = shutil.copy
+        elif image_file_op == "move":
+            img_op = shutil.move
+
+        def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None):
+            basename = os.path.basename(_img_path)
+            img_op(_img_path, os.path.join(_dst_dir, basename))
+            if _label_file is not None and _label_data is not None:
+                dirname = os.path.basename(_dst_dir)
+                _label_str = dataset.fmt_label_dumps(_label_data)
+                _label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
+
+    elif callable(custom_image_label_op):
+        image_label_op = custom_image_label_op
     else:
         raise ValueError(f"Unsupported image file operation: '{image_file_op}'")
 
@@ -857,29 +873,23 @@ def dump(
         iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
         if dataset.with_label:
             # Unified processing for labeled data
-            for img_path, label_data in iterator:
-                img_basename = os.path.basename(img_path)
-                label_str = dataset.fmt_label_dumps(label_data)
-
+            for image_path, label_data in iterator:
                 # Determine destination directory
                 if len(dataset.directories) > 1:
-                    src_dir = os.path.dirname(img_path)
+                    src_dir = os.path.dirname(image_path)
                     dir_name = os.path.basename(src_dir)
                     dst_dir = os.path.join(destination, dir_name)
                 else:
-                    dir_name = os.path.basename(destination)
                     dst_dir = destination
 
                 os.makedirs(dst_dir, exist_ok=True)
-                file_op(img_path, os.path.join(dst_dir, img_basename))
                 label_file = os.path.join(dst_dir, label_file_name)
                 if label_file not in opened_files:
                     opened_files[label_file] = open(label_file, "w", encoding=label_file_encoding)
-                opened_files[label_file].write(f"{dir_name}/{img_basename}\t{label_str}\n")
+                image_label_op(dst_dir, image_path, label_data, opened_files[label_file], dataset.fmt_label_dumps)
         else:
             # Unified processing for unlabeled data
             for img_path in iterator:
-                img_basename = os.path.basename(img_path)
                 if len(dataset.directories) > 1:
                     src_dir = os.path.dirname(img_path)
                     dir_name = os.path.basename(src_dir)
@@ -888,7 +898,7 @@ def dump(
                     dst_dir = destination
 
                 os.makedirs(dst_dir, exist_ok=True)
-                file_op(img_path, os.path.join(dst_dir, img_basename))
+                image_label_op(dst_dir, img_path)
     finally:
         for file_handle in opened_files.values():
             file_handle.close()
@@ -1051,54 +1061,3 @@ def union_label(label_files, dst_file):
             with open(label_file, "r", encoding="utf-8") as f1:
                 for line in f1:
                     f.write(f"{dst_dirname}/" + line)
-
-
-def plot_box_and_text_v2(image, box, text: str = '', lw=None, text_lw_scale=0.5, box_color=(128, 128, 128),
-                         text_color=(255, 255, 255), font=cv2.FONT_HERSHEY_COMPLEX, text_box=False,
-                         text_box_offset_x: int = 0, text_box_offset_y: int = 0):
-    """
-
-    :param image:
-    :param lw: line width: max(round(sum(img_ori.shape) / 2 * 0.003), 2)
-    :param box: [x1, y1, x2, y2] or [x1, y1, x2, y2, x3, y3, x4, y4]
-    :param text: str
-    :param box_color: (B, G, R)
-    :param text_lw_scale: [0, 1]
-    :param text_color: (B, G, R)
-    :param font: cv2.FONT_HERSHEY_COMPLEX
-    :param text_box: bool, whether to draw text box
-    :param text_box_offset_x: int, >= 0
-    :param text_box_offset_y: int, >= 0
-    :return:
-    """
-    if lw is None:
-        lw = max(round(sum(image.shape) / 2 * 0.003), 1)
-
-    if not len(box) == 0:
-        if not isinstance(box, np.ndarray):
-            box = np.array(box, dtype=np.int32).reshape(-1, 2)
-        elif len(box.shape) != 2:
-            box = box.astype(np.int32).reshape(-1, 2)
-
-        if box.shape[0] == 2:
-            p1, p2 = box[0, :], box[1, :]
-            cv2.rectangle(image, p1, p2, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
-        elif box.shape[0] >= 2:
-            p1, p2 = box[0, :], box[2, :]
-            cv2.polylines(image, [box], True, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
-        else:
-            raise ValueError("box shape is not correct.")
-    else:
-        p1 = [0, 0]
-
-    if text:
-        tf = max(lw - 1, 1)  # font thickness
-        w, h = cv2.getTextSize(text, 0, fontScale=lw * text_lw_scale, thickness=tf)[0]  # text width, height
-        outside = p1[1] - h - 3 >= 0  # label fits outside box
-        p1 = [p1[0] + w * text_box_offset_x, p1[1] + h * text_box_offset_y]
-        p2 = p1[0] + w, p1[1] - h - 3 if outside else p1[1] + h + 3
-        if text_box:
-            cv2.rectangle(image, p1, p2, box_color, -1, cv2.LINE_AA)  # filled
-        cv2.putText(image, text, (p1[0], p1[1] - 2 if outside else p1[1] + h + 2), font, lw * text_lw_scale,
-                    text_color, thickness=tf, lineType=cv2.LINE_AA)
-    return image

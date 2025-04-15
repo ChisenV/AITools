@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import cv2
@@ -12,7 +13,15 @@ __all__ = [
     "parse_voc_det_label",
     "yolo_to_absolute",
     "compute_affine_matrix",
-    "invert_affine_transform"
+    "invert_affine_transform",
+    "plot_box_and_text_v2",
+    "rotate_image",
+    "rotate_bbox",
+    "rotate_points",
+    "rotate_image_min",
+    "order_rectangle_points",
+    "warpAffine_points",
+    "union_label",
 ]
 
 from .parser import XMLParser
@@ -289,3 +298,245 @@ def plot_box_and_text_v2(image, box, text: str = '', lw=None, text_lw_scale=0.5,
                     text_color, thickness=tf, lineType=cv2.LINE_AA)
     return image
 
+
+@FUNCTIONS.register_component
+def rotate_image(image, angle):
+    """
+    对图像进行任意角度旋转，旋转中心为图像中心
+
+    参数:
+        image: 输入图像 (numpy数组)
+        angle: 旋转角度(度)，正值为逆时针旋转
+
+    返回:
+        旋转后的图像
+    """
+    (h, w) = image.shape[:2]
+    center = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+    return cv2.warpAffine(image, M, (w, h))
+
+
+@FUNCTIONS.register_component
+def rotate_image_min(image, angle):
+    """
+    计算旋转图像后的最小外接矩形
+
+    参数:
+        image: 输入图像
+        angle: 旋转角度(度)，正值为逆时针旋转
+
+    返回:
+        (旋转后的图像, 最小外接矩形的宽高)
+    """
+    h, w = image.shape[:2]
+
+    corners = np.array([
+        [0, 0],
+        [w, 0],
+        [w, h],
+        [0, h]
+    ], dtype=np.float32)
+
+    rotated_corners = rotate_points(corners, angle, (h, w))
+
+    min_x = np.min(rotated_corners[:, 0])
+    max_x = np.max(rotated_corners[:, 0])
+    min_y = np.min(rotated_corners[:, 1])
+    max_y = np.max(rotated_corners[:, 1])
+
+    new_w = int(np.ceil(max_x - min_x))
+    new_h = int(np.ceil(max_y - min_y))
+
+    center = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+    M[0, 2] += (new_w - w) / 2
+    M[1, 2] += (new_h - h) / 2
+
+    rotated_image = cv2.warpAffine(image, M, (new_w, new_h),
+                                   flags=cv2.INTER_LINEAR,
+                                   borderMode=cv2.BORDER_CONSTANT)
+
+    return rotated_image, M
+
+
+@FUNCTIONS.register_component
+def order_rectangle_points(points):
+    """
+    将矩形框的四个顶点按左上、右上、右下、左下顺时针排序。
+
+    参数：
+        points (np.ndarray or list): 四个点的坐标，形状为(4,2)。
+
+    返回：
+        np.ndarray: 排序后的四个点，形状为(4,2)。
+    """
+    points = np.array(points)
+    if points.shape != (4, 2):
+        raise ValueError("输入必须是4个二维点，形状为(4, 2)。")
+
+    # 1. 按y升序，x升序排序，确定左上点
+    sorted_indices = np.lexsort((points[:, 0], points[:, 1]))
+    sorted_points = points[sorted_indices]
+    top_left = sorted_points[0]
+
+    # 2. 计算剩余点相对于左上点的极角并排序
+    remaining = sorted_points[1:]
+    dx = remaining[:, 0] - top_left[0]
+    dy = remaining[:, 1] - top_left[1]
+    angles = np.arctan2(dy, dx)
+    sorted_remaining = remaining[np.argsort(angles)]
+
+    # 组合结果：左上、右上、右下、左下
+    ordered_points = np.vstack([top_left.reshape(1, 2), sorted_remaining])
+    return ordered_points
+
+
+@FUNCTIONS.register_component
+def warpAffine_points(points, M, round=None):
+    points = np.asarray(points)
+    points = np.column_stack((points, np.ones(len(points))))
+    M = np.vstack((M, [0, 0, 1]))
+    transformed = points @ M.T[:, :2]
+    # if sort:
+    #     sorted_indices = np.lexsort((transformed[:, 1], transformed[:, 0]))
+    #     transformed = transformed[sorted_indices]
+    if round is not None:
+        transformed = np.round(transformed, round).astype(np.int32)
+    return transformed
+
+
+@FUNCTIONS.register_component
+def rotate_bbox(bbox, angle, imgsz):
+    """
+    对图像中的矩形框进行旋转，旋转中心为图像中心
+
+    参数:
+        bbox: 原始矩形框 (x1, y1, x2, y2)
+        angle: 旋转角度(度)，正值为逆时针旋转
+        imgsz: 图像形状 (h, w)
+
+    返回:
+        旋转后的矩形框 (x1, y1, x2, y2)
+    """
+    h, w = imgsz
+    x1, y1, x2, y2 = bbox
+
+    center = (w / 2, h / 2)
+    angle_rad = np.deg2rad(angle)
+
+    points = np.array([
+        [x1, y1],
+        [x2, y1],
+        [x2, y2],
+        [x1, y2]
+    ], dtype=np.float32)
+
+    points_centered = points - center
+    rotation_matrix = np.array([
+        [np.cos(angle_rad), -np.sin(angle_rad)],
+        [np.sin(angle_rad), np.cos(angle_rad)]
+    ])
+
+    rotated_points = np.dot(points_centered, rotation_matrix.T)
+    rotated_points += center
+
+    min_x = np.min(rotated_points[:, 0])
+    max_x = np.max(rotated_points[:, 0])
+    min_y = np.min(rotated_points[:, 1])
+    max_y = np.max(rotated_points[:, 1])
+
+    return min_x, min_y, max_x, max_y
+
+
+@FUNCTIONS.register_component
+def rotate_points(points, angle, imgsz):
+    """
+    对图像中的一组点进行旋转，旋转中心为图像中心
+
+    参数:
+        points: 点集，格式为Nx2的numpy数组，每行表示一个点(x,y)
+        angle: 旋转角度(度)，正值为逆时针旋转
+        imgsz: 图像形状 (h, w)
+
+    返回:
+        旋转后的点集(Nx2 numpy数组)
+    """
+    h, w = imgsz
+
+    center = np.array([w / 2, h / 2])
+    angle_rad = np.deg2rad(angle)
+    points_centered = points - center
+    rotation_matrix = np.array([
+        [np.cos(angle_rad), np.sin(angle_rad)],
+        [-np.sin(angle_rad), np.cos(angle_rad)]
+    ])
+
+    rotated_points = np.dot(points_centered, rotation_matrix.T)
+    rotated_points += center
+    return rotated_points
+
+
+@FUNCTIONS.register_component
+def rotate_rectangle(cx, cy, w, h, radians=None, degrees=None, round=None, dtype=np.float64):
+    """
+    Rotate a rectangle by a given angle.
+
+    Brief:
+        clockwise:
+            matrix1: [[np.sin(radians), -np.cos(radians)],[np.cos(radians), np.sin(radians)]]
+
+            matrix2: [[math.cos(radians), math.sin(radians)],[-math.sin(radians), math.cos(radians)]]
+
+        anticlockwise:
+            matrix3: [[np.sin(radians), np.cos(radians)],[-np.cos(radians), np.sin(radians)]]
+
+            matrix4: [[math.cos(radians), -math.sin(radians)],[math.sin(radians), math.cos(radians)]]
+
+    Parameters:
+        cx:
+        cy:
+        w:
+        h:
+        radians:
+        degrees:
+        round:
+        dtype:
+
+    Return:
+        np.array([[x1, y1], [x2, y2], [x3, y3], [x4, y4]])
+
+    """
+    if radians is not None:
+        assert degrees is None, "Either angle_radians or angle_degrees must be provided, not both"
+    else:
+        assert degrees is not None, "Either angle_radians or angle_degrees must be provided"
+        radians = np.radians(degrees)
+
+    point_matrix = np.array([
+        [-w / 2, -h / 2],  # top left
+        [w / 2, -h / 2],  # top right
+        [w / 2, h / 2],  # bottom right
+        [-w / 2, h / 2],  # bottom left
+    ])
+
+    rotation_matrix = [
+        [np.cos(radians), np.sin(radians)],
+        [-np.sin(radians), np.cos(radians)]
+    ]
+
+    rotated_point = point_matrix @ rotation_matrix + np.array([[cx, cy]] * 4)
+    if round is not None:
+        return rotated_point.round(round).astype(dtype)
+    else:
+        return rotated_point.astype(dtype)
+
+
+def union_label(label_files, dst_file):
+    dst_dirname = os.path.basename(os.path.dirname(dst_file))
+    with open(dst_file, "w", encoding="utf-8") as f:
+        for label_file in label_files:
+            with open(label_file, "r", encoding="utf-8") as f1:
+                for line in f1:
+                    f.write(f"{dst_dirname}/" + line)
