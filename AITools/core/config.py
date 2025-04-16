@@ -1,5 +1,4 @@
 import copy
-import os
 from pathlib import Path
 
 import yaml
@@ -71,8 +70,8 @@ class Config(object):
         merged = self._update_with_cli_opts(merged, opts or [])
         self._cfg = copy.deepcopy(merged)
 
-    @classmethod
-    def get_parser(cls, extension: str) -> Type[ParserPlugin]:
+    @staticmethod
+    def get_parser(extension: str) -> Type[ParserPlugin]:
         """
         Gets the parser for the corresponding suffix
         Args:
@@ -118,8 +117,16 @@ class Config(object):
 
     def copy(self) -> 'Config':
         """Returns an isolated deep copy"""
-        return Config(**copy.deepcopy(self._cfg))
-    
+        return Config(
+            cfg_name=self._name,
+            cfg_parser=self._parser,
+            cfg_base_key=self.cfg_base_key,
+            cfg_inherit_key=self.cfg_inherit_key,
+            cfg_type_key=self.cfg_type_key,
+            cfg_strict_mode=self._strict_mode,
+            **copy.deepcopy(self._cfg)
+        )
+
     def setdefault(self, key: str, default: Any = None) -> Any:
         """
         Get a configuration item with a default value
@@ -252,10 +259,8 @@ def dump(
         raise FileExistsError(f"File {file_path} already exists")
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(config, Config):
-        parser = parser if parser else config.get_parser(file_path.suffix)
-        parser.dump(config.dic, file_path)
-    else:
-        if parser is None:
-            raise ValueError("Parser is required when config is a dict object")
-        parser.dump(config, file_path)
+    try:
+        parser = parser if parser else Config.get_parser(file_path.suffix)
+    except ValueError:
+        raise ValueError("Parser is required when config is a dict object")
+    parser.dump(config.dic if isinstance(config, Config) else config, file_path)

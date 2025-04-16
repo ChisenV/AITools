@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from AITools.base.process_def import BasePreProcessor
+from AITools.base.process_def import BasePreprocessor, BaseProcessor
 from AITools.base.vision_def import IOConfig, ImageData, ImageFormat, IMG_FORMATS
 from AITools.comp import functions as F
 from AITools.comp.dataset import OCRDatasetV2
@@ -15,7 +15,7 @@ PROCESSORS = ComponentManager("Processors")
 
 
 @PROCESSORS.register_component
-class WarpAffineNorm2NCHW(BasePreProcessor):
+class WarpAffineNorm2NCHW(BasePreprocessor):
     def __init__(self, model_input: IOConfig, mean=None, std=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_input = model_input
@@ -32,7 +32,10 @@ class WarpAffineNorm2NCHW(BasePreProcessor):
     def _val_norm_param(self, param, param_name):
         """验证标准化参数的合法性"""
         if param is None:
-            return None
+            return {
+                "mean": [0.485, 0.456, 0.406],
+                "std": [0.229, 0.224, 0.225]
+            }.get(param_name, None)
 
         if isinstance(param, (int, float)):
             return [param] * self.model_input.shape[1]  # 按通道数扩展
@@ -110,10 +113,11 @@ class WarpAffineNorm2NCHW(BasePreProcessor):
 
 
 @PROCESSORS.register_component
-class VisualizeOCRDataset:
+class VisualizeOCRDataset(BaseProcessor):
     def __init__(self, dataset=None, set_type='det', save_dir='', save_format='auto', label_file_name='Label.txt',
                  line_color=(128, 128, 128), box_enable=True, text_enable=True, text_color=(128, 128, 128), text_font=3,
-                 text_box_enable=False, line_width=2, text_line_width_scale=0.3):
+                 text_box_enable=False, line_width=2, text_line_width_scale=0.3, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         assert isinstance(dataset, OCRDatasetV2), \
             f"Unsupported dataset type: {dataset.__class__.__name__}, please use OCRDataset or its subclass."
         assert dataset.with_label, \

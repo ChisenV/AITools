@@ -136,5 +136,4 @@ class Builder(object):
         return self._name
 
     def __str__(self):
-        return (f"Builder(name={self._name}):\n    " +
-                "\n    ".join(self._component_configs))
+        return (f"Builder(name={self._name}):\n  |-" + "\n  |-".join(self._component_configs))
