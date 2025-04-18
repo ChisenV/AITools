@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Union, List, Callable
 from enum import Enum
@@ -9,6 +9,7 @@ __all__ = [
     "BaseModelHandler",
 ]
 
+from . import Runnable
 from AITools.core.config import Config
 
 
@@ -25,7 +26,7 @@ class FrameworkType(Enum):
     TENSORFLOW = "tensorflow"
 
 
-class BaseModelHandler(ABC):
+class BaseModelHandler(Runnable):
 
     _SUPPORTED_EXTENSIONS = []
 

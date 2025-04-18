@@ -1,3 +1,7 @@
+from abc import ABC, abstractmethod
+from typing import Any
+
+
 class _FakeTorch:
     class Tensor:
         pass
@@ -11,6 +15,12 @@ try:
     import torch
 except ImportError:
     torch = _FakeTorch
+
+
+class Runnable(ABC):
+    @abstractmethod
+    def run(self, *args, **kwargs) -> Any:
+        pass
 
 
 from .dataset_def import *

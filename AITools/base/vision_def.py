@@ -137,6 +137,9 @@ class ImageData:
 
     def to_pil(self) -> Image.Image:
         """Convert to PIL image"""
+        if self._type == ImageType.PIL_IMAGE:
+            self._decoded = self.data
+            return self._decoded
         return Image.fromarray(self.to_numpy())
 
 

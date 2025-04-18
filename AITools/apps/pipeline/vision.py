@@ -1,214 +1,219 @@
-# TODO demo
-from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, Optional
-import asyncio
-import time
+from collections import deque, defaultdict
 
-from AITools import Config
+from AITools import Config, Builder
+
+# class BaseResultSaver(ABC):
+#     """结果保存基类"""
+#
+#     def __init__(self, output_dir: Union[str, Path]):
+#         self.output_dir = Path(output_dir)
+#         self.output_dir.mkdir(parents=True, exist_ok=True)
+#
+#     @abstractmethod
+#     def save_batch(self, batch_data: Dict[str, Any], batch_id: int):
+#         """保存批次结果"""
+#         pass
+#
+#     def finalize(self):
+#         """完成所有保存操作（如合并临时文件）"""
+#         pass
+#
+#
+# class ModelInferWorkflow(BaseProcessor):
+#     """增强版工作流基类"""
+#
+#     def __init__(self, config: Union[Config, Dict[str, Any]], model: BaseModelHandler, dataset: IterableDataset,
+#                  preprocessor: BasePreprocessor, postprocessor: BasePostprocessor, saver: BaseResultSaver,
+#                  mode: str = 'inference', evaluator: Optional[BaseEvaluator] = None, *args, **kwargs):
+#         super().__init__(*args, **kwargs)
+#         self.config = config
+#         self.model = model
+#         self.dataset = dataset
+#         self.preprocessor = preprocessor
+#         self.postprocessor = postprocessor
+#         self.saver = saver
+#         self.mode = mode
+#         self.evaluator = evaluator
+#         self._validate_components()
+#
+#     def build(self):
+#         """构建工作流"""
+#         pass
+#
+#     def _validate_components(self):
+#         """验证组件兼容性"""
+#         if self.mode == 'evaluation' and not self.evaluator:
+#             raise ValueError("Evaluation mode requires evaluator")
+#
+#     def run_batch(self, batch_data: Any) -> Dict[str, Any]:
+#         """执行单批次处理"""
+#         raw_inputs = batch_data['data']
+#         raw_targets = batch_data.get('targets')
+#
+#         processed = self.preprocessor(raw_inputs)
+#         raw_output = self.model.run(processed)
+#         parsed_results = self.postprocessor(raw_output)
+#
+#         self.saver.save_batch({
+#             'inputs': raw_inputs,
+#             'predictions': parsed_results,
+#             'targets': raw_targets
+#         }, batch_id=id(batch_data))
+#
+#         # 评估计算
+#         batch_metrics = {}
+#         if self.mode == 'evaluation' and raw_targets is not None:
+#             batch_metrics = self.evaluator.compute_batch(
+#                 preds=parsed_results,
+#                 targets=raw_targets
+#             )
+#
+#         return {
+#             'predictions': parsed_results,
+#             'metrics': batch_metrics
+#         }
+#
+#     def run(self, *args, **kwargs) -> Dict[str, Any]:
+#         """执行完整流程"""
+#         all_metrics = []
+#
+#         for batch in self.dataset:
+#             result = self.run_batch(batch)
+#             if self.mode == 'evaluation':
+#                 all_metrics.append(result['metrics'])
+#
+#         self.saver.finalize()
+#
+#         return {
+#             'final_metrics': self.evaluator.aggregate(all_metrics) if self.mode == 'evaluation' else None,
+#             'save_path': str(self.saver.output_dir)
+#         }
+#
+#     def __call__(self, *args, **kwargs):
+#         return self.run(*args, **kwargs)
+#
+#
+# class ClassificationResultSaver(BaseResultSaver):
+#     """分类结果保存器"""
+#     def __init__(self, output_dir: str, file_format: str = 'csv'):
+#         super().__init__(output_dir)
+#         self.format = file_format
+#         self.temp_data = []
+#
+#     def save_batch(self, batch_data: Dict, batch_id: int):
+#         for img, pred, target in zip(batch_data['inputs'], batch_data['predictions'], batch_data.get('targets', [])):
+#             record = {
+#                 'image_path': img.filename if hasattr(img, 'filename') else 'unknown',
+#                 'pred_class': pred['class_name'],
+#                 'confidence': pred['confidence'],
+#                 'true_class': target['class_name'] if target else None
+#             }
+#             self.temp_data.append(record)
+#
+#     def finalize(self):
+#         if self.format == 'csv':
+#             with open(self.output_dir / 'results.csv', 'w') as f:
+#                 writer = csv.DictWriter(f, fieldnames=self.temp_data[0].keys())
+#                 writer.writeheader()
+#                 writer.writerows(self.temp_data)
+#         elif self.format == 'json':
+#             with open(self.output_dir / 'results.json', 'w') as f:
+#                 json.dump(self.temp_data, f)
+#
+#
+# class DetectionResultSaver(BaseResultSaver):
+#     """检测结果保存器（COCO格式）"""
+#     def __init__(self, output_dir: str):
+#         super().__init__(output_dir)
+#         self.results = []
+#         self.coco_template = {
+#             "info": {...},
+#             "licenses": [...],
+#             "categories": [...],
+#             "images": [],
+#             "annotations": []
+#         }
+#
+#     def save_batch(self, batch_data: Dict, batch_id: int):
+#         for img, pred in zip(batch_data['inputs'], batch_data['predictions']):
+#             image_entry = {
+#                 "id": len(self.coco_template['images']) + 1,
+#                 "file_name": img.filename,
+#                 "width": img.width,
+#                 "height": img.height
+#             }
+#             self.coco_template['images'].append(image_entry)
+#
+#             for box in pred['detections']:
+#                 annotation = {
+#                     "id": len(self.coco_template['annotations']) + 1,
+#                     "image_id": image_entry['id'],
+#                     "category_id": box['class_id'],
+#                     "bbox": [box['xmin'], box['ymin'], box['xmax']-box['xmin'], box['ymax']-box['ymin']],
+#                     "score": box['confidence']
+#                 }
+#                 self.coco_template['annotations'].append(annotation)
+#
+#     def finalize(self):
+#         with open(self.output_dir / 'detections.json', 'w') as f:
+#             json.dump(self.coco_template, f)
 
 
-class DataBatch:
-    """增强型数据批处理容器"""
+class Workflow:
+    def __init__(self, tasks):
+        self.tasks = {}          # 存储所有任务实例（id -> Task）
+        self.successors = defaultdict(list)  # 存储任务的后继节点（用于拓扑排序）
+        self.sorted_tasks = []   # 拓扑排序后的任务执行顺序
 
-    def __init__(self,
-                 raw_data: Any,
-                 metadata: Optional[Dict] = None,
-                 inference_result: Optional[Any] = None,
-                 evaluation_result: Optional[Dict[str, float]] = None):
-        self.raw_data = raw_data  # 原始输入数据
-        self.metadata = metadata or {}  # 数据元信息
-        self.inference_result = inference_result  # 模型推理结果
-        self.evaluation_result = evaluation_result  # 评估指标
-        self.timestamp = time.monotonic()  # 处理时间戳
+        # 将依赖的字符串 ID 转换为 Task 实例
+        for task in self.tasks.values():
+            task.dependencies = [self.tasks[dep_id] for dep_id in task.dependencies]
+
+        # 3. 构建后继节点映射（用于拓扑排序）
+        for task in self.tasks.values():
+            for dependency in task.dependencies:
+                self.successors[dependency].append(task)
+
+        # 4. 执行拓扑排序，验证 DAG 并确定执行顺序
+        self.sorted_tasks = self._topological_sort()
+
+    def _topological_sort(self):
+        """通过 Kahn 算法实现拓扑排序，返回有序任务列表"""
+        in_degree = {task: len(task.dependencies) for task in self.tasks.values()}
+        queue = deque([task for task, degree in in_degree.items() if degree == 0])
+        sorted_tasks = []
+
+        while queue:
+            current_task = queue.popleft()
+            sorted_tasks.append(current_task)
+            for successor in self.successors[current_task]:
+                in_degree[successor] -= 1
+                if in_degree[successor] == 0:
+                    queue.append(successor)
+
+        if len(sorted_tasks) != len(self.tasks):
+            raise ValueError("Workflow contains a cycle. Not a valid DAG!")
+        return sorted_tasks
+
+    def run(self):
+        """按拓扑顺序依次执行任务"""
+        print("Starting workflow execution...")
+        for task in self.sorted_tasks:
+            # 检查依赖是否均已执行（理论上拓扑排序已保证）
+            for dependency in task.dependencies:
+                if not dependency.has_run:
+                    raise RuntimeError(f"Task {task.id}'s dependency {dependency.id} not run!")
+            # 执行当前任务
+            print(f"> Starting task {task.id}")
+            task.run()
+            print(f"> Completed task {task.id}\n")
+        print("All tasks executed successfully!")
 
 
-class AsyncDataSource(ABC):
-    """异步数据源抽象基类"""
-
-    @abstractmethod
-    async def data_stream(self) -> AsyncGenerator[Any, None]:
-        """必须实现为异步数据生成器"""
-        yield
-
-
-class ModelInference(ABC):
-    """增强型模型推理接口"""
-
-    @abstractmethod
-    async def initialize(self):
-        """异步初始化模型"""
-        pass
-
-    @abstractmethod
-    async def inference(self, batch: DataBatch) -> DataBatch:
-        """执行异步推理"""
-        pass
-
-    async def shutdown(self):
-        """资源清理（可选实现）"""
-        pass
-
-
-class Evaluator(ABC):
-    """增强型评估器接口"""
-
+class WorkflowBuilder(Builder):
     def __init__(self):
-        self.global_metrics = {}
+        super().__init__()
 
-    @abstractmethod
-    async def evaluate(self, batch: DataBatch) -> DataBatch:
-        """执行异步评估"""
-        pass
-
-    @abstractmethod
-    async def summarize(self) -> Dict[str, float]:
-        """返回全局评估指标"""
-        pass
-
-    async def reset(self):
-        """重置评估状态"""
-        self.global_metrics.clear()
-
-
-class ResultSaver(ABC):
-    """增强型结果存储器"""
-
-    @abstractmethod
-    async def initialize(self):
-        """异步初始化存储资源"""
-        pass
-
-    @abstractmethod
-    async def save(self, batch: DataBatch):
-        """异步保存结果"""
-        pass
-
-    async def finalize(self):
-        """最终清理操作（可选实现）"""
-        pass
-
-
-class Pipeline:
-    """内存安全的异步处理流水线"""
-
-    def __init__(
-            self,
-            config: Config,
-            model: ModelInference,
-            evaluator: Evaluator,
-            saver: ResultSaver,
-            max_concurrent: int = 4,
-            max_queue_size: int = 100,
-            throughput_window: int = 10
-    ):
-        self.model = model
-        self.evaluator = evaluator
-        self.saver = saver
-        self.queue = asyncio.Queue(maxsize=max_queue_size)
-        self.semaphore = asyncio.Semaphore(max_concurrent)
-        self.max_queue_size = max_queue_size
-        self.throughput = 0
-        self.processed_count = 0
-        self.throughput_window = throughput_window
-        self.last_update = time.monotonic()
-
-    async def stream_data(
-            self,
-            data_source: AsyncDataSource,
-            batch_size: int = 32
-    ):
-        """安全的数据流注入方法"""
-        async for data in data_source.data_stream():
-            # 动态背压控制
-            while self.queue.qsize() >= self.max_queue_size * 0.9:
-                await asyncio.sleep(0.1)
-
-            await self.queue.put(DataBatch(raw_data=data))
-
-            # 动态批处理（示例）
-            if self.queue.qsize() % batch_size == 0:
-                await self.queue.join()
-
-    async def _process_batch(self):
-        """增强型批处理协程"""
-        async with self.semaphore:
-            while True:
-                try:
-                    batch = await self.queue.get()
-
-                    # 执行推理
-                    batch = await self.model.inference(batch)
-
-                    # 执行评估
-                    batch = await self.evaluator.evaluate(batch)
-
-                    # 保存结果
-                    await self.saver.save(batch)
-
-                    # 更新吞吐量统计
-                    self._update_throughput()
-
-                except Exception as e:
-                    await self.handle_error(e)
-                finally:
-                    self.queue.task_done()
-
-    def _update_throughput(self):
-        """吞吐量计算"""
-        self.processed_count += 1
-        now = time.monotonic()
-        if now - self.last_update > self.throughput_window:
-            self.throughput = self.processed_count / (now - self.last_update)
-            self.processed_count = 0
-            self.last_update = now
-
-    async def run(self, num_workers: int = 4):
-        """增强型流水线运行"""
-        await self.model.initialize()
-        await self.saver.initialize()
-
-        workers = [asyncio.create_task(self._process_batch())
-                   for _ in range(num_workers)]
-
-        # 启动监控任务
-        monitor_task = asyncio.create_task(self._monitor_resources())
-
-        try:
-            await self.queue.join()
-        finally:
-            for worker in workers:
-                worker.cancel()
-            monitor_task.cancel()
-
-            await self.model.shutdown()
-            await self.saver.finalize()
-
-    async def _monitor_resources(self):
-        """资源监控后台任务"""
-        while True:
-            if self.queue.qsize() > self.max_queue_size * 0.8:
-                await self._adjust_throughput()
-            await asyncio.sleep(1)
-
-    async def _adjust_throughput(self):
-        """动态吞吐量调节"""
-        target_speed = self.throughput * 0.9
-        # 实现具体的调节逻辑（如调整worker数量）
-
-    async def get_final_report(self) -> Dict[str, float]:
-        """获取最终评估报告"""
-        return await self.evaluator.summarize()
-
-    async def emergency_drain(self):
-        """内存紧急释放"""
-        while not self.queue.empty():
-            try:
-                self.queue.get_nowait()
-                self.queue.task_done()
-            except asyncio.QueueEmpty:
-                break
-
-    async def handle_error(self, error: Exception):
-        """增强型错误处理"""
-        print(f"Error occurred: {str(error)}")
-        # 可扩展重试逻辑、错误上报等
+    def build(self):
+        tasks = []
+        return tasks

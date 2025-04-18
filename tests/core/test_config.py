@@ -147,3 +147,18 @@ def test_config_dataclass():
         timeout=5.0,
         is_use_ssl=True,
         mail_time_interval=60))
+
+
+def test_config_case2():
+    c = Config(r"E:\python_project\AIToolsV2\AITools\tests\workflow\workflow_1.yml")
+    print(c)
+
+    i = iter(c)
+    d = next(i)
+
+    while d:
+        print(d)
+        try:
+            d = next(i)
+        except StopIteration:
+            break
