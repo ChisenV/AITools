@@ -540,3 +540,17 @@ def union_label(label_files, dst_file):
             with open(label_file, "r", encoding="utf-8") as f1:
                 for line in f1:
                     f.write(f"{dst_dirname}/" + line)
+
+
+@FUNCTIONS.register_component
+def img2label_path(img_path, image_dirname="images", label_dirname="labels"):
+    """Define label paths as a function of image paths."""
+    sa, sb = f"{os.sep}{image_dirname}{os.sep}", f"{os.sep}{label_dirname}{os.sep}"  # /images/, /labels/ substrings
+    return sb.join(img_path.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt"
+
+
+@FUNCTIONS.register_component
+def img2label_paths(img_paths, image_dirname="images", label_dirname="labels"):
+    """Define label paths as a function of image paths."""
+    sa, sb = f"{os.sep}{image_dirname}{os.sep}", f"{os.sep}{label_dirname}{os.sep}"  # /images/, /labels/ substrings
+    return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt" for x in img_paths]

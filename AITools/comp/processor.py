@@ -16,7 +16,7 @@ PROCESSORS = ComponentManager("Processors")
 
 @PROCESSORS.register_component
 class WarpAffineNorm2NCHW(BasePreprocessor):
-    def __init__(self, model_input: IOConfig, mean=None, std=None, *args, **kwargs):
+    def __init__(self, model_input: IOConfig, mean=None, std=None, enable_normalization=True, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.model_input = model_input
         self.src2dst = None
@@ -27,7 +27,7 @@ class WarpAffineNorm2NCHW(BasePreprocessor):
         self.mean = self._val_norm_param(mean, "mean")
         self.std = self._val_norm_param(std, "std")
 
-        self.enable_normalization = mean is not None and std is not None
+        self.enable_normalization = enable_normalization
 
     def _val_norm_param(self, param, param_name):
         """验证标准化参数的合法性"""
@@ -49,7 +49,7 @@ class WarpAffineNorm2NCHW(BasePreprocessor):
         else:
             raise TypeError(f"Unsupported {param_name} type: {type(param)}")
 
-    def run(self, im: ImageData, *args, **kwargs):
+    def run(self, im: np.ndarray, *args, **kwargs):
         ih, iw, ic = im.shape
         N, C, H, W = self.model_input.shape
         if ic != C:
@@ -66,7 +66,7 @@ class WarpAffineNorm2NCHW(BasePreprocessor):
                 self.last_dst_size = current_dst_size
 
             data = cv2.warpAffine(
-                im.to_numpy().copy(),
+                im.copy(),
                 self.src2dst,
                 [W, H],
                 flags=cv2.INTER_LINEAR,
@@ -75,15 +75,13 @@ class WarpAffineNorm2NCHW(BasePreprocessor):
             )
             data = data.astype(np.float32) / 255.0
         else:
-            data = im.to_numpy().copy().astype(np.float32) / 255.0
-        if im.format == 'BGR':
+            data = im.copy().astype(np.float32) / 255.0
+        if kwargs.get('format', 'RGB') == 'BGR':
             data = data[..., ::-1]
 
         if self.enable_normalization:
-            if self.mean is not None:
-                data -= np.array(self.mean, dtype=np.float32).reshape(1, 1, -1)
-            if self.std is not None:
-                data /= np.array(self.std, dtype=np.float32).reshape(1, 1, -1)
+            data -= np.array(self.mean, dtype=np.float32).reshape(1, 1, -1)
+            data /= np.array(self.std, dtype=np.float32).reshape(1, 1, -1)
 
         data = data.astype(self.model_input.dtype)
 
@@ -101,11 +99,9 @@ class WarpAffineNorm2NCHW(BasePreprocessor):
 
         return ImageData(
             data=data,
-            path=im.path,
             format=ImageFormat.NCHW,
             shape=data.shape,
-            id=im.id,
-            input_name=im.input_name
+            input_name=self.model_input.name
         )
 
     def __call__(self, *args, **kwargs):
@@ -187,3 +183,7 @@ class VisualizeOCRDataset(BaseProcessor):
 
     def __call__(self, *args, **kwargs):
         return self.visualize(*args, **kwargs)
+
+
+class Visualize(BaseProcessor):
+    pass

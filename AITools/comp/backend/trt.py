@@ -36,10 +36,10 @@ class TensorRTModel(BaseModelHandler):
     def __init__(
             self,
             path: Union[str, Path],
-            config: Union[Config, Dict[str, Any]],
+            config: Union[Config, Dict[str, Any]] = None,
             **kwargs
     ):
-        super().__init__(model_path=path, config=config, **kwargs)
+        super().__init__(model_path=path, config=config if config else {}, **kwargs)
         self._model_file = self._resolve_model_file()
         self._need_build = self._model_file.suffix in _TENSORRT_ONNX_SUPPORT_SUFFIX
         self._model_info = OrderedDict()
@@ -203,11 +203,11 @@ class TensorRTModel(BaseModelHandler):
 
             if is_input:
                 self._model_info.setdefault("inputs", []).append(
-                    IOConfig(name, dtype, shape, n_byte, host_buffer, device_buffer)
+                    IOConfig(name, self.nptype(dtype), shape, n_byte, host_buffer, device_buffer)
                 )
             else:
                 self._model_info.setdefault("outputs", []).append(
-                    IOConfig(name, dtype, shape, n_byte, host_buffer, device_buffer)
+                    IOConfig(name, self.nptype(dtype), shape, n_byte, host_buffer, device_buffer)
                 )
             self._buffers[name] = [host_buffer, device_buffer, n_byte, is_input]
             self.trt_context.set_tensor_address(name, device_buffer)
