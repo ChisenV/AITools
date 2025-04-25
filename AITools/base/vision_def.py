@@ -83,7 +83,7 @@ class ImageData:
         Image.Image,   # PIL对象
         callable,      # 延迟加载函数
     ]
-    path: str
+    path: str = ''
     format: str = "RGB"       # 颜色通道格式
     shape: tuple = None       # 图像尺寸
     id: Optional[str] = None  # 唯一标识符
@@ -116,17 +116,17 @@ class ImageData:
         if self._decoded is not None:
             return self._decoded
 
-        if self._type == ImageType.NUMPY_ARRAY:
+        if self._type is ImageType.NUMPY_ARRAY:
             self._decoded = self.data
-        elif self._type == ImageType.TENSOR:
+        elif self._type is ImageType.TENSOR:
             self._decoded = self.data.cpu().numpy()
-        elif self._type == ImageType.FILE_PATH:
+        elif self._type is ImageType.FILE_PATH:
             self._decoded = np.array(Image.open(self.data))
-        elif self._type == ImageType.BYTE_STREAM:
+        elif self._type is ImageType.BYTE_STREAM:
             self._decoded = np.array(Image.open(io.BytesIO(self.data)))
-        elif self._type == ImageType.PIL_IMAGE:
+        elif self._type is ImageType.PIL_IMAGE:
             self._decoded = np.array(self.data)
-        elif self._type == ImageType.LAZY_LOADER:
+        elif self._type is ImageType.LAZY_LOADER:
             self._decoded = self.data()  # Execute the lazy load function
 
         return self._decoded
