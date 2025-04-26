@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Union
 
 import cv2
 import numpy as np
@@ -45,7 +46,7 @@ _waitkey = cv2.waitKey
 
 
 @FUNCTIONS.register_component
-def imread(filename: str, flags: int = cv2.IMREAD_COLOR):
+def imread(filename: Union[str, Path], flags: int = cv2.IMREAD_COLOR):
     """
     Read an image from a file.
 
@@ -60,7 +61,7 @@ def imread(filename: str, flags: int = cv2.IMREAD_COLOR):
 
 
 @FUNCTIONS.register_component
-def imwrite(filename: str, img: np.ndarray, params=None):
+def imwrite(filename: Union[str, Path], img: np.ndarray, params=None):
     """
     Write an image to a file.
 
@@ -279,7 +280,7 @@ def plot_box_and_text_v2(image, box, text: str = '', lw=None, text_lw_scale=0.5,
             p1, p2 = box[0, :], box[1, :]
             cv2.rectangle(image, p1, p2, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
         elif box.shape[0] >= 2:
-            p1, p2 = box[0, :], box[2, :]
+            p1 = box[0, :]
             cv2.polylines(image, [box], True, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
         else:
             raise ValueError("box shape is not correct.")

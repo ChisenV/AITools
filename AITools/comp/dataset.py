@@ -395,7 +395,6 @@ class OCRDatasetV2(IterableDataset):
 
         # Iterate over the 'other' dataset, retrieving data items
         for other_idx in range(len(other)):
-            #
             other_item = other[other_idx]
             abs_path = os.path.abspath(
                 other_item[0] if isinstance(other_item, tuple) else other_item
@@ -1142,8 +1141,16 @@ class YOLODataset(IterableDataset):
         return self._with_label
 
     @property
+    def is_read_image(self):
+        return self._read_image
+
+    @property
     def directories(self):
         return list(self._roots_map.values())
+
+    @property
+    def category_size(self):
+        return len(self._cate_id2name)
 
     def categories(self, key):
         if isinstance(key, str):
@@ -1503,14 +1510,17 @@ def dump_yolo_dataset(
     else:
         raise ValueError(f"Unsupported label file operation: {label_file_op}")
 
-    iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
-    for idx, (old_image_path, old_label_path) in enumerate(iterator):
-        old_root, image_name = old_image_path.rsplit(dataset.image_path_sep, 1)
-        new_image_path = dataset.image_path_sep.join([destination, image_name])
-        new_label_path = dataset.img2label_path(new_image_path)
-        new_image_dir = os.path.dirname(new_image_path)
-        os.makedirs(new_image_dir, exist_ok=True)
-        new_label_dir = os.path.dirname(new_label_path)
-        os.makedirs(new_label_dir, exist_ok=True)
-        img_op(old_image_path, new_image_path)
-        lab_op(old_label_path, new_label_path)
+    try:
+        iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
+        for idx, (old_image_path, old_label_path) in enumerate(iterator):
+            old_root, image_name = old_image_path.rsplit(dataset.image_path_sep, 1)
+            new_image_path = dataset.image_path_sep.join([destination, image_name])
+            new_label_path = dataset.img2label_path(new_image_path)
+            new_image_dir = os.path.dirname(new_image_path)
+            os.makedirs(new_image_dir, exist_ok=True)
+            new_label_dir = os.path.dirname(new_label_path)
+            os.makedirs(new_label_dir, exist_ok=True)
+            img_op(old_image_path, new_image_path)
+            lab_op(old_label_path, new_label_path)
+    except Exception as e:
+        raise e
