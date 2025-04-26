@@ -8,13 +8,14 @@ import shutil
 import warnings
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import (
     Any,
     Callable,
     Dict,
     Iterator,
     List,
-    Union
+    Union, Sized
 )
 
 import cv2
@@ -25,9 +26,12 @@ __all__ = [
     "OCRDatasetV2",
     "OCRCLSDatasetV2",
     "OCRRECDatasetV2",
-    "dump",
-    "matting",
-    "split"
+    "dump_ocr_dataset",
+    "matting_ocr_dataset",
+    "split_ocr_dataset",
+    "YOLODataset",
+    "validate_normalized_coords",
+    "dump_yolo_dataset",
 ]
 
 from AITools.base.dataset_def import IterableDataset, T_co
@@ -36,6 +40,18 @@ from AITools.core.manager import ComponentManager
 from AITools.comp.functions import parse_ppocr_label, imread, imwrite, plot_box_and_text_v2
 
 DATASETS = ComponentManager("datasets")
+
+
+def _parse_slice(s: slice, obj: Sized) -> list:
+    """Converts slice objects to a list of valid indexes"""
+    start, stop, step = s.indices(len(obj))
+    return list(range(start, stop, step))
+
+
+def _validate_indices(indices, obj: Sized) -> list:
+    """Validate and filter the index list"""
+    max_idx = len(obj) - 1
+    return [idx for idx in indices if 0 <= idx <= max_idx]
 
 
 @DATASETS.register_component
@@ -226,10 +242,10 @@ class OCRDatasetV2(IterableDataset):
 
         """
         if isinstance(index, slice):
-            return self.subset(self._parse_slice(index))
+            return self.subset(_parse_slice(index, self))
 
         elif isinstance(index, (list, tuple, np.ndarray)):
-            return self.subset(self._validate_indices(index))
+            return self.subset(_validate_indices(index, self))
 
         try:
             return self._get_data_item(index) if self._read_image else self._get_single_item(index)
@@ -252,39 +268,6 @@ class OCRDatasetV2(IterableDataset):
     def _get_data_item(self, index):
         image_path, anno_label = self._get_single_item(index)
         return parse_ppocr_label(image_path, anno_label)
-
-    def _parse_slice(self, s: slice) -> list:
-        """Converts slice objects to a list of valid indexes"""
-        start, stop, step = s.indices(len(self))
-        return list(range(start, stop, step))
-
-    def _validate_indices(self, indices) -> list:
-        """Validate and filter the index list"""
-        max_idx = len(self) - 1
-        return [idx for idx in indices if 0 <= idx <= max_idx]
-
-    def subset(self, indices: list) -> "OCRDatasetV2":
-        """Create a subdataset based on the index list"""
-        # Create a new instance but skip the initialization process
-        new_dataset = self.__class__.__new__(self.__class__)
-        new_dataset.__dict__ = copy.deepcopy(self.__dict__)
-
-        # Update the core data map
-        new_dataset._image_map = {}
-        new_dataset._place_map = {}
-        new_dataset._label_map = {} if self.with_label else None
-        new_dataset.aug_map = {}
-
-        # Populate the filtered data
-        for new_idx, old_idx in enumerate(indices):
-            new_dataset._image_map[new_idx] = self._image_map[old_idx]
-            new_dataset._place_map[new_idx] = self._place_map[old_idx]
-            if self.with_label:
-                new_dataset._label_map[new_idx] = self._label_map.get(old_idx, {})
-
-        # Update directory mapping
-        new_dataset._update_directory_mappings()
-        return new_dataset
 
     def _update_directory_mappings(self):
         """更新子数据集的目录映射关系"""
@@ -481,6 +464,29 @@ class OCRDatasetV2(IterableDataset):
     def with_label(self):
         return self._with_label
 
+    def subset(self, indices: list) -> "OCRDatasetV2":
+        """Create a subdataset based on the index list"""
+        # Create a new instance but skip the initialization process
+        new_dataset = self.__class__.__new__(self.__class__)
+        new_dataset.__dict__ = copy.deepcopy(self.__dict__)
+
+        # Update the core data map
+        new_dataset._image_map = {}
+        new_dataset._place_map = {}
+        new_dataset._label_map = {} if self.with_label else None
+        new_dataset.aug_map = {}
+
+        # Populate the filtered data
+        for new_idx, old_idx in enumerate(indices):
+            new_dataset._image_map[new_idx] = self._image_map[old_idx]
+            new_dataset._place_map[new_idx] = self._place_map[old_idx]
+            if self.with_label:
+                new_dataset._label_map[new_idx] = self._label_map.get(old_idx, {})
+
+        # Update directory mapping
+        new_dataset._update_directory_mappings()
+        return new_dataset
+
     def append(self, image_path, label=None):
         abs_image_path = os.path.abspath(os.path.normpath(image_path))
         if not os.path.exists(abs_image_path) or not abs_image_path.endswith(tuple(IMG_FORMATS)):
@@ -514,8 +520,7 @@ class OCRDatasetV2(IterableDataset):
         self._place_map[idx] = root_idx
         self._dir_basename_map[dirname].add(basename)
 
-    def split(self, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True,
-              specified=None):
+    def split(self, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True, specified=None):
         if ratio is None:
             ratio = [0.6, 0.2, 0.2]
         elif isinstance(ratio, float):
@@ -821,7 +826,7 @@ class OCRCLSDatasetV2(OCRDatasetV2):
         return new
 
 
-def dump(
+def dump_ocr_dataset(
         dataset: OCRDatasetV2,
         destination: str,
         image_file_op: str = "copy",
@@ -904,9 +909,9 @@ def dump(
             file_handle.close()
 
 
-def split(src_dir: str, dst_dir: str, set_type='det', path_collect_func=None, seed=None, subset_name=None, ratio=None,
-          overwriting=False, label_file_name="Label.txt", label_file_encoding="utf-8", parallel: bool = False,
-          normative: bool = True):
+def split_ocr_dataset(src_dir: str, dst_dir: str, set_type='det', path_collect_func=None, seed=None, subset_name=None,
+                      ratio=None, overwriting=False, label_file_name="Label.txt", label_file_encoding="utf-8",
+                      parallel: bool = False, normative: bool = True):
     if set_type == 'det':
         DatasetClass = OCRDatasetV2
     elif set_type == 'rec':
@@ -938,11 +943,11 @@ def split(src_dir: str, dst_dir: str, set_type='det', path_collect_func=None, se
         try:
             new = _dataset.copy()
             new.wash(_set_idxes, 'keep')
-            dump(new, _dst_sub_dir,
-                 label_file_name=_label_file_name,
-                 label_file_encoding=_label_file_encoding,
-                 overwriting=overwriting,
-                 tqdm_enable=False)
+            dump_ocr_dataset(new, _dst_sub_dir,
+                             label_file_name=_label_file_name,
+                             label_file_encoding=_label_file_encoding,
+                             overwriting=overwriting,
+                             tqdm_enable=False)
         except Exception as e:
             print(f"Error occurred while processing subset {_rid}: {e}")
             return False, _rid
@@ -1012,13 +1017,13 @@ def split(src_dir: str, dst_dir: str, set_type='det', path_collect_func=None, se
         rec_label_files = [os.path.join(set_dir, p, label_file_name)
                            for p in os.listdir(set_dir) if os.path.isdir(os.path.join(set_dir, p))]
         dst_rec_label_file = os.path.join(set_dir, label_file_name)
-        union_label(rec_label_files, dst_rec_label_file)
+        union_ocr_dataset_label(rec_label_files, dst_rec_label_file)
 
     return datasets, dataset_split
 
 
-def matting(dataset: OCRDatasetV2, output: str, label_file_name: str = "Label.txt",
-            label_file_encoding: str = "utf-8", overwriting: bool = False):
+def matting_ocr_dataset(dataset: OCRDatasetV2, output: str, label_file_name: str = "Label.txt",
+                        label_file_encoding: str = "utf-8", overwriting: bool = False):
     def write(_save_name, _roi, _str, show=False):
         imwrite(os.path.join(output, _save_name), _roi)
         f.write(f"{os.path.basename(output)}/{_save_name}\t{_str}\n")
@@ -1054,10 +1059,458 @@ def matting(dataset: OCRDatasetV2, output: str, label_file_name: str = "Label.tx
                     print(e, img_path, labels if labels is not None else "label is none")
 
 
-def union_label(label_files, dst_file):
+def union_ocr_dataset_label(label_files, dst_file):
     dst_dirname = os.path.basename(os.path.dirname(dst_file))
     with open(dst_file, "w", encoding="utf-8") as f:
         for label_file in label_files:
             with open(label_file, "r", encoding="utf-8") as f1:
                 for line in f1:
                     f.write(f"{dst_dirname}/" + line)
+
+
+class YOLODataset(IterableDataset):
+
+    def __init__(
+            self,
+            root: Union[str, Path, List[Union[str, Path]]] = None,
+            *,
+            with_image: bool = True,
+            with_label: bool = False,
+            image_dirname: str = "images",
+            label_dirname: str = "labels",
+            task: str = "det",
+            categories: Union[Dict[str, int], Dict[int, str]] = None,
+            subject_to: str = "image",
+            read_image: bool = False,
+            transformers=None,
+            kpt_shape=(17, 3),
+            hooks: Dict[str, List[Callable]] = None,
+            fix_bad_data: bool = False,
+            **kwargs
+    ):
+        """
+        Args:
+            root: root path of dataset.
+                If root is a str or Path, it will be regarded as the root path of dataset,
+                complete image path is root + image_dirname, complete label path is root + label_dirname;
+                if root is a list, the complete image path is root[i], the complete label path is
+                root[i].replace(image_dirname, label_dirname)
+            with_image: whether the dataset contains images.
+            with_label: whether the dataset contains labels.
+            image_dirname: the name of image directory.
+            label_dirname: the name of label directory.
+            task: the task of dataset, chick the value in ['det', 'obb', 'cls', 'seg']
+            read_image: whether to read image when get data item.
+            transformers: the transformers of dataset.
+            subject_to: If the number of images and labels in the dataset do not match, what will prevail
+                for the data items of the dataset. Choose in ['image', 'label'].
+        """
+        super().__init__()
+        self._roots_map = {}
+        self._image_map = {}
+        self._label_map = {}
+        self._place_map = {}
+        self._with_image = with_image
+        self._with_label = with_label
+        self._read_image = read_image
+        self.image_dirname = image_dirname
+        self.label_dirname = label_dirname
+        self.task = task
+        self.transformers = transformers
+        self.subject_to = subject_to
+        is_name2id = all(isinstance(k, str) for k in categories.keys())
+        self._cate_id2name = {v: k for k, v in categories.items()} if is_name2id else categories
+        self._cate_name2is = categories if is_name2id else {v: k for k, v in categories.items()}
+        self.kpt_shape = kpt_shape
+        self._index = 0
+        self._begin = 0
+        self.hooks = hooks if hooks else {}
+        self.fix_bad_data = fix_bad_data
+
+        self.image_path_sep = f"{os.sep}{self.image_dirname}{os.sep}"
+        self.label_path_sep = f"{os.sep}{self.label_dirname}{os.sep}"
+
+        self._parse_root(root, with_image, image_dirname)
+        self._parse_image_label()
+
+    @property
+    def with_image(self):
+        return self._with_image
+
+    @property
+    def with_label(self):
+        return self._with_label
+
+    @property
+    def directories(self):
+        return list(self._roots_map.values())
+
+    def categories(self, key):
+        if isinstance(key, str):
+            return self._cate_name2is.get(key, None)
+        elif isinstance(key, int):
+            return self._cate_id2name.get(key, None)
+        else:
+            raise ValueError("Not expected type of key: {}".format(type(key)))
+
+    def img2label_path(self, image_path, label_postfix=".txt"):
+        return self.label_path_sep.join(image_path.rsplit(self.image_path_sep, 1)).rsplit(".", 1)[0] + label_postfix
+
+    def _parse_root(self, root, with_image, image_dirname):
+        if with_image:
+            if isinstance(root, list):
+                self._roots_map = {idx: r for idx, r in enumerate(root) if image_dirname in r}
+            elif isinstance(root, (str, Path)):
+                self._roots_map = {0: Path(root) / image_dirname}
+            elif root is None:
+                self._with_image = False
+            else:
+                raise ValueError("Not expected type of root: {}".format(type(root)))
+        else:
+            if isinstance(root, (str, Path)):
+                os.makedirs(root, exist_ok=True)
+                self._roots_map[0] = root
+            elif root is None:
+                pass
+            else:
+                raise ValueError("When 'with_image=False', the root must be a path or None; "
+                                 "If root is a path and doesn't exist, it will be created automatically, "
+                                 "if root is None, an empty dataset object is declared.")
+
+    def _parse_image_label(self):
+        image_id = 0
+        for idx, root in self._roots_map.items():
+            if self.with_image:
+                for image_name in os.listdir(root):
+                    if not image_name.endswith(tuple(IMG_FORMATS)):
+                        continue
+                    self._image_map[image_id] = image_name
+                    self._place_map[image_id] = idx
+                    if self.with_label and self.task != "cls":
+                        image_path = os.path.join(root, image_name)
+                        label_path = self.img2label_path(image_path)
+                        self._label_map[image_id] = os.path.basename(label_path) if os.path.exists(label_path) else None
+                    elif self.with_label and self.task == "cls":
+                        category_name = os.path.basename(root)
+                        self._label_map[image_id] = category_name
+                    image_id += 1
+
+    def __iter__(self) -> Iterator[T_co]:
+        self._index = self._begin
+        return self
+
+    def __next__(self):
+        if self._index < len(self):
+            ret = self[self._index]
+            self._index += 1
+            return ret
+        else:
+            self._index = self._begin
+            raise StopIteration(f"Iterator out of range, stop.")
+
+    def __len__(self):
+        return len(self._image_map)
+
+    def __getitem__(self, index):
+        """
+        Enhanced index access, supported in the following forms:
+        - dataset[5]        -> Single sample
+        - dataset[1:10:2]   -> Slicing generates a new data set
+        - dataset[[1,3,5]]  -> The list index generates a new data set
+
+        """
+        if isinstance(index, slice):
+            return self.subset(_parse_slice(index, self))
+
+        elif isinstance(index, (list, tuple, np.ndarray)):
+            return self.subset(_validate_indices(index, self))
+
+        try:
+            return self._get_data_item(index) if self._read_image else self._get_single_item(index)
+        except KeyError:
+            raise IndexError(f"index {index} out of dataset range [0, {len(self) - 1}]")
+
+    def __setitem__(self, index: int, data: Union[str, tuple]):
+        """
+        Support two assignment modes:
+        1. 仅更新图像路径 (当 with_label=False 时)
+           示例：dataset[0] = "/new/path/img1.jpg"
+        2. 同时更新图像路径和标签 (当 with_label=True 时)
+           示例：dataset[1] = ("/new/path/img2.jpg", "/new/path/lab2.txt")
+        """
+        if index < -len(self) or index >= len(self):
+            raise IndexError(f"Index {index} out of dataset range [0, {len(self) - 1}].")
+        if index < 0:
+            index += len(self)
+
+        if self.with_label:
+            if not isinstance(data, tuple) or len(data) != 2:
+                raise ValueError("The (path, label) tuple is required.")
+            new_image, new_label = data
+        else:
+            if not isinstance(data, str):
+                raise ValueError("need to provide an image path string.")
+            new_image = data
+            new_label = None
+
+        image_dir = os.path.dirname(new_image)
+        image_name = os.path.basename(new_image)
+
+        root_idx = None
+        for idx, r_path in self._roots_map.items():
+            if r_path == image_dir:
+                root_idx = idx
+                break
+        if root_idx is None:
+            raise ValueError(f"Image directory {image_dir} not found in dataset roots.")
+
+        self._image_map[index] = image_name
+        self._place_map[index] = root_idx
+
+        if self.with_label and self.task in ['det', 'obb', 'seg']:
+            if new_label is not None:
+                if os.path.exists(new_label):
+                    self._label_map[index] = os.path.basename(new_label)
+                else:
+                    self._label_map[index] = None
+            else:
+                label_path = self.img2label_path(new_image)
+                if os.path.exists(label_path):
+                    self._label_map[index] = os.path.basename(label_path)
+                else:
+                    self._label_map[index] = None
+        elif self.with_label and self.task in ['cls']:
+            if new_label is not None:
+                self._label_map[index] = new_label if isinstance(new_label, str) else str(new_label)
+
+    def _get_single_item(self, index):
+        if self._begin <= index < len(self):
+            root_idx = self._place_map[index]
+            root_path = self._roots_map[root_idx]
+            image_name = self._image_map[index]
+            image_path = os.path.join(root_path, image_name)
+
+            if self.with_label:
+                return image_path, self.img2label_path(image_path)
+            return image_path, None
+
+        raise IndexError(f"Index {index} is out of the valid range")
+
+    def _get_data_item(self, index):
+        image_path, label_path = self._get_single_item(index)
+        image = imread(image_path)
+        label = None
+
+        if self.with_label and label_path and os.path.exists(label_path):
+            label = self._parse_label_file(label_path, fix_data=self.fix_bad_data)
+
+        if self.transformers:
+            transformed = self.transformers(image=image, label=label)
+            image = transformed['image']
+            label = transformed['label']
+
+        return image_path, label_path, image, label
+
+    def _parse_label_file(self, label_path, encoding='utf-8', fix_data=False):
+        """
+        Parse YOLO format annotation file for different tasks.
+
+        Args:
+            label_path: Path to the label file
+            encoding: File encoding (default: utf-8)
+
+        Returns:
+            List of annotations in the format:
+            - det: [(class_id, x_center, y_center, width, height), ...]
+            - obb: [(class_id, x1, y1, x2, y2, x3, y3, x4, y4), ...]
+            - seg: [(class_id, [x1, y1, x2, y2, ...]), ...]
+            - pose: [(class_id, x_center, y_center, width, height, [(px1, py1, v1?), (px2, py2, v2?), ...]), ...]
+
+        Raises:
+            ValueError: If label format doesn't match task requirements
+        """
+
+        annotations = []
+
+        try:
+            with open(label_path, 'r', encoding=encoding) as f:
+                lines = [line.strip() for line in f.readlines() if line.strip()]
+        except UnicodeDecodeError:
+            # Fallback to other common encodings if utf-8 fails
+            try:
+                with open(label_path, 'r', encoding='latin-1') as f:
+                    lines = [line.strip() for line in f.readlines() if line.strip()]
+            except Exception as e:
+                raise ValueError(f"Failed to read label file {label_path}: {str(e)}")
+
+        for line_num, line in enumerate(lines, 1):
+            parts = line.split()
+            if not parts:
+                continue
+
+            try:
+                class_id = int(parts[0])
+                values = list(map(float, parts[1:]))
+
+                if self.task == 'det':
+                    # Expected format: class_id x_center y_center width height
+                    if len(values) != 4:
+                        raise ValueError(f"Detection label requires 4 values, got {len(values)}")
+                    validate_normalized_coords(values, line_num, fix_data)
+                    x, y, w, h = values
+                    la = (class_id, x, y, w, h)
+
+                elif self.task == 'obb':
+                    # Expected format: class_id x1 y1 x2 y2 x3 y3 x4 y4
+                    if len(values) != 8:
+                        raise ValueError(f"OBB label requires 8 values, got {len(values)}")
+                    validate_normalized_coords(values, line_num, fix_data)
+                    la = (class_id, *values)
+
+                elif self.task == 'seg':
+                    # Expected format: class_id x1 y1 x2 y2 ... (at least 3 points)
+                    if len(values) < 6 or len(values) % 2 != 0:
+                        raise ValueError(f"Segmentation label requires even number of values (>=6), got {len(values)}")
+                    validate_normalized_coords(values, line_num, fix_data)
+                    points = [(values[i], values[i+1]) for i in range(0, len(values), 2)]
+                    la = (class_id, points)
+
+                elif self.task == 'pose':
+                    # Expected format:
+                    # class_id x_center y_center width height kp1_x kp1_y <p1-visibility> kp2_x kp2_y <p2-visibility>...
+                    if len(values) < 4:
+                        raise ValueError(f"Pose label requires at least 4 values, got {len(values)}")
+                    bbox = values[:4]
+                    validate_normalized_coords(bbox, line_num, fix_data)
+                    kps = values[4:]
+
+                    # Auto-detect pose format (2D or 3D)
+                    keypoints = [
+                        (kps[i], kps[i + 1], int(kps[i + 2]) if self.kpt_shape[-1] == 3 else 1)
+                        for i in range(0, len(kps), self.kpt_shape[-1])
+                    ]
+                    la = (class_id, *bbox, keypoints)
+
+                else:
+                    raise ValueError(f"Unsupported task type: {self.task}")
+
+                annotations.append(la)
+
+            except (ValueError, IndexError) as e:
+                raise ValueError(f"Invalid label format in file: '{label_path}'. Error: {str(e)}")
+
+        return annotations
+
+    def subset(self, indices: Union[list]):
+        subset = YOLODataset(
+            root=None,
+            with_image=self.with_image,
+            with_label=self.with_label,
+            image_dirname=self.image_dirname,
+            label_dirname=self.label_dirname,
+            task=self.task,
+            read_image=self._read_image,
+            transformers=self.transformers,
+            subject_to=self.subject_to,
+            hooks=self.hooks,
+            kpt_shape=self.kpt_shape,
+        )
+
+        used_roots = set(self._place_map[idx] for idx in indices)
+        subset._roots_map = {idx: self._roots_map[idx] for idx in used_roots}
+
+        subset._image_map = {}
+        subset._label_map = {}
+        subset._place_map = {}
+        for new_idx, old_idx in enumerate(indices):
+            subset._image_map[new_idx] = self._image_map[old_idx]
+            subset._place_map[new_idx] = self._place_map[old_idx]
+            if self.with_label:
+                subset._label_map[new_idx] = self._label_map.get(old_idx)
+
+        return subset
+
+    def append(self, image_path, label=None):
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image {image_path} not found.")
+
+        image_dir = os.path.dirname(image_path)
+        image_name = os.path.basename(image_path)
+
+        if self.image_dirname not in image_dir.split(os.sep):
+            raise ValueError(f"Image directory must contain {self.image_dirname}.")
+
+        root_idx = None
+        for idx, r_path in self._roots_map.items():
+            if r_path == image_dir:
+                root_idx = idx
+                break
+        if root_idx is None:
+            root_idx = max(self._roots_map.keys(), default=-1) + 1
+            self._roots_map[root_idx] = image_dir
+
+        new_idx = len(self)
+        self._image_map[new_idx] = image_name
+        self._place_map[new_idx] = root_idx
+
+        if self.with_label:
+            if label and os.path.exists(label):
+                self._label_map[new_idx] = os.path.basename(label)
+            else:
+                label_path = self.img2label_path(image_path)
+                self._label_map[new_idx] = os.path.basename(label_path) if os.path.exists(label_path) else None
+
+    def run_hooks(self, name: str, *args, **kwargs):
+        for hook in self.hooks.get(name, []):
+            hook(*args, **kwargs)
+
+
+def validate_normalized_coords(coords, l_n, fix_data=False):
+    """Validate coordinates are normalized (0-1)"""
+    for i, val in enumerate(coords):
+        if not (0 <= val <= 1):
+            if fix_data:
+                coords[i] = max(0.0, min(1.0, val))
+            else:
+                raise ValueError(
+                    f"Line {l_n}: Coordinate {i} out of range [0,1]: {val}"
+                )
+
+
+def dump_yolo_dataset(
+        dataset: YOLODataset,
+        destination: str,
+        image_file_op: Union[str, Callable] = "copy",
+        label_file_op: Union[str, Callable] = "copy",
+        tqdm_enable: bool = True,
+):
+    if not dataset:
+        raise ValueError("Dataset is empty.")
+    op = {
+        "copy": shutil.copy,
+        "move": shutil.move
+    }
+    if isinstance(image_file_op, str):
+        img_op = op[image_file_op]
+    elif isinstance(image_file_op, Callable):
+        img_op = image_file_op
+    else:
+        raise ValueError(f"Unsupported image file operation: {image_file_op}")
+    if isinstance(label_file_op, str):
+        lab_op = op[label_file_op]
+    elif isinstance(label_file_op, Callable):
+        lab_op = label_file_op
+    else:
+        raise ValueError(f"Unsupported label file operation: {label_file_op}")
+
+    iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
+    for idx, (old_image_path, old_label_path) in enumerate(iterator):
+        old_root, image_name = old_image_path.rsplit(dataset.image_path_sep, 1)
+        new_image_path = dataset.image_path_sep.join([destination, image_name])
+        new_label_path = dataset.img2label_path(new_image_path)
+        new_image_dir = os.path.dirname(new_image_path)
+        os.makedirs(new_image_dir, exist_ok=True)
+        new_label_dir = os.path.dirname(new_label_path)
+        os.makedirs(new_label_dir, exist_ok=True)
+        img_op(old_image_path, new_image_path)
+        lab_op(old_label_path, new_label_path)
