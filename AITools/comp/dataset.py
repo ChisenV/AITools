@@ -448,6 +448,10 @@ class OCRDatasetV2(IterableDataset):
                 for idx, name in self._image_map.items()]
 
     @property
+    def image_indexes(self):
+        return list(self._image_map.keys())
+
+    @property
     def directories(self):
         return list(self._roots_map.values())
 
@@ -520,51 +524,7 @@ class OCRDatasetV2(IterableDataset):
         self._dir_basename_map[dirname].add(basename)
 
     def split(self, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True, specified=None):
-        if ratio is None:
-            ratio = [0.6, 0.2, 0.2]
-        elif isinstance(ratio, float):
-            ratio = [ratio, 1 - ratio]
-        if subset_name is None:
-            subset_name = ['train', 'val', 'test']
-        if sum(ratio) != 1:
-            raise ValueError("Sum of ratio must be 1.")
-        if len(ratio) > len(subset_name):
-            raise ValueError("Length of ratio must be less than or equal to length of subset_name.")
-
-        if specified is not None and len(specified) > len(subset_name):
-            raise ValueError("Length of specified must be less than or equal to length of subset_name.")
-
-        if seed is not None:
-            random.seed(seed)
-
-        shuffled_list = []
-        if grouped:
-            for gid, group in self.get_root_groups().items():
-                random.shuffle(group)
-                shuffled_list.append(group)
-        else:
-            shuffled = list(self._image_map.keys())
-            random.shuffle(shuffled)
-            shuffled_list = [shuffled]
-
-        subsets = {}
-        for shuffled in shuffled_list:
-            total = len(shuffled)
-            lengths = []
-            start_idx = 0
-            for i in range(len(ratio)):
-                if i < len(ratio) - 1:
-                    length = int(ratio[i] * total)
-                else:
-                    length = total - sum(lengths)
-                lengths.append(length)
-                end_idx = start_idx + length
-                subsets.setdefault(subset_name[i], []).extend(shuffled[start_idx:end_idx])
-                start_idx = end_idx
-        for name, subset in subsets.items():
-            subsets[name] = sorted(subset)
-
-        return subsets
+        return split(self, ratio=ratio, subset_name=subset_name, seed=seed, grouped=grouped, specified=specified)
 
     def wash(self, image_list: List[Union[str, int]], mode='drop'):
         """
@@ -1141,6 +1101,19 @@ class YOLODataset(IterableDataset):
         return self._with_label
 
     @property
+    def images(self):
+        """
+        All data absolute paths.
+        Returns: list of str
+        """
+        return [os.path.join(self._roots_map[self._place_map[idx]], name)
+                for idx, name in self._image_map.items()]
+
+    @property
+    def image_indexes(self):
+        return list(self._image_map.keys())
+
+    @property
     def is_read_image(self):
         return self._read_image
 
@@ -1467,9 +1440,68 @@ class YOLODataset(IterableDataset):
                 label_path = self.img2label_path(image_path)
                 self._label_map[new_idx] = os.path.basename(label_path) if os.path.exists(label_path) else None
 
+    def split(self, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True, specified=None):
+        return split(self, ratio=ratio, subset_name=subset_name, seed=seed, grouped=grouped, specified=specified)
+
+    def get_root_groups(self):
+        """Gets an index of samples grouped by root directory"""
+        groups = defaultdict(list)
+        for idx in self._image_map:
+            root_id = self._place_map[idx]
+            groups[root_id].append(idx)
+        return groups
+
     def run_hooks(self, name: str, *args, **kwargs):
         for hook in self.hooks.get(name, []):
             hook(*args, **kwargs)
+
+
+def split(dataset, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True, specified=None):
+    if ratio is None:
+        ratio = [0.6, 0.2, 0.2]
+    elif isinstance(ratio, float):
+        ratio = [ratio, 1 - ratio]
+    if subset_name is None:
+        subset_name = ['train', 'val', 'test']
+    if sum(ratio) != 1:
+        raise ValueError("Sum of ratio must be 1.")
+    if len(ratio) > len(subset_name):
+        raise ValueError("Length of ratio must be less than or equal to length of subset_name.")
+
+    if specified is not None and len(specified) > len(subset_name):
+        raise ValueError("Length of specified must be less than or equal to length of subset_name.")
+
+    if seed is not None:
+        random.seed(seed)
+
+    shuffled_list = []
+    if grouped:
+        for gid, group in dataset.get_root_groups().items():
+            random.shuffle(group)
+            shuffled_list.append(group)
+    else:
+        shuffled = dataset.image_indexes
+        random.shuffle(shuffled)
+        shuffled_list = [shuffled]
+
+    subsets = {}
+    for shuffled in shuffled_list:
+        total = len(shuffled)
+        lengths = []
+        start_idx = 0
+        for i in range(len(ratio)):
+            if i < len(ratio) - 1:
+                length = int(ratio[i] * total)
+            else:
+                length = total - sum(lengths)
+            lengths.append(length)
+            end_idx = start_idx + length
+            subsets.setdefault(subset_name[i], []).extend(shuffled[start_idx:end_idx])
+            start_idx = end_idx
+    for name, subset in subsets.items():
+        subsets[name] = sorted(subset)
+
+    return subsets
 
 
 def validate_normalized_coords(coords, l_n, fix_data=False):
