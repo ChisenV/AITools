@@ -30,6 +30,7 @@ __all__ = [
     "matting_ocr_dataset",
     "split_ocr_dataset",
     "YOLODataset",
+    "split",
     "validate_normalized_coords",
     "dump_yolo_dataset",
 ]
