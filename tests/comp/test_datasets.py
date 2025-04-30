@@ -2,9 +2,11 @@ import os.path
 import random
 from pathlib import Path
 
+import numpy as np
+
 from AITools.comp.dataset import *
 from AITools.comp.functions import *
-from AITools.comp.processor import VisualizeOCRDataset
+from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset
 
 abs_file = r"E:\python_ai_dataset\train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
 rel_file = r"train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
@@ -116,3 +118,60 @@ def test_OCRDataset_vis():
     VisualizeOCRDataset(dataset, save_dir=vis_path, text_enable=True, line_color=(0, 180, 0), text_color=(0, 128, 0))()
 
     return
+
+
+def test_YOLODataset_init():
+    print()
+
+    d = YOLODataset(
+        root=r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.2\images\val",
+        with_label=True,
+        image_dirname=f"images",
+        label_dirname=f"labels",
+        task="seg",
+        categories={
+            0: "elem",
+            1: "solder",
+            2: "paster",
+            3: "device"
+        },
+        read_image=False
+    )
+    # assert len(d) == 440, "len(d) == {}".format(len(d))
+
+    VisualizeYOLODataset(
+        dataset=d,
+        save_dir=r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.2-vis-val",
+    )()
+
+    # def label_op(old_label_path, new_label_path):
+    #     with open(old_label_path, "r") as f:
+    #         lines = f.readlines()
+    #     try:
+    #         f = open(new_label_path, 'w', encoding='utf-8')
+    #         for line_num, line in enumerate(lines, 1):
+    #             parts = line.split()
+    #             if not parts:
+    #                 continue
+    #
+    #             class_id = int(parts[0])
+    #             if class_id in [2, 3]:
+    #                 continue
+    #             values = list(map(float, parts[1:]))
+    #             validate_normalized_coords(values, line_num, True)
+    #             values_str = ' '.join(map(str, values))
+    #             new_line = f"{class_id} {values_str}\n"
+    #             f.write(new_line)
+    #
+    #     except ValueError as e:
+    #         raise e
+    #     finally:
+    #         f.close()
+
+    # dump_yolo_dataset(
+    #     d,
+    #     r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.1",
+    #     lambda o, n: True,
+    #     label_op
+    # )
+

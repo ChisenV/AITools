@@ -313,3 +313,112 @@ class VisualizeYOLODataset(BaseProcessor):
 
         basename = os.path.basename(image)
         F.imwrite(os.path.join(self.save_dir, basename), im)
+
+
+class CropImages:
+    def __init__(self, input_dir, output_dir, w: int, h: int, suffix='"{}__{}___{}".format(basename, j, i)',
+                 fmt='png', deal_with_label=False, yolo_task='det'):
+        """
+        Crop images in a directory and save them to another directory.
+
+        Args:
+            input_dir: input directory containing images
+            output_dir: output directory to save cropped images
+            w: width of the crop area
+            h: height of the crop area
+            suffix: suffix of the output file names
+            fmt: format of the output file names
+        """
+        self.input_dir = input_dir
+        self.output_dir = output_dir
+        self.w = w
+        self.h = h
+        self.suffix = suffix
+        self.format = fmt
+        self.deal_with_label = deal_with_label
+        self.yolo_task = yolo_task
+
+    def process(self, src_path, dst_path, strict=True):
+        if not os.path.exists(dst_path):
+            os.makedirs(dst_path)
+        print(f'Crop images in \n\t{src_path} \nto \n\t{dst_path} \n'
+              f'with width {self.w} and height {self.h} ......')
+        if self.w == 0 or self.h == 0:
+            raise ValueError('Width and height must be greater than 0')
+        pbar = tqdm(os.listdir(src_path), desc='Cropping images')
+        for filename in pbar:
+            basename, ext = os.path.splitext(filename)
+            if ext[1:] not in ['jpg', 'png', 'jpeg', 'bmp']:
+                continue
+            # Mutil-language friendly imread
+            image_path = os.path.join(src_path, filename)
+            image = F.imread(image_path)
+            _h, _w = self.h, self.w
+            if image.shape[0] < self.h or image.shape[1] < self.w:
+                if strict:
+                    raise ValueError('Crop area is larger than the image size')
+                else:
+                    _h = image.shape[0] if image.shape[0] < _h else _h
+                    _w = image.shape[1] if image.shape[1] < _w else _w
+            n = [(image.shape[0] + _h - 1) // _h, (image.shape[1] + _w - 1) // _w]
+            s = ((image.shape[0] - _h) // (n[0] - 1) if n[0] > 1 else _h,
+                 (image.shape[1] - _w) // (n[1] - 1) if n[1] > 1 else _w)
+            for r in range(0, n[0]):
+                for c in range(0, n[1]):
+                    i, j = r * s[0], c * s[1]
+                    # Mutil-language friendly imwrite
+                    crop_img_path = os.path.join(dst_path, str(eval(self.suffix)) + f".{self.format}")
+                    F.imwrite(crop_img_path, image[i:i + _h, j:j + _w])
+                    pbar.set_postfix({'output': eval(self.suffix) + f".{self.format}"})
+
+    def process_yolo(self, src_image_path, src_label_path, dst_image_path, dst_label_path, strict=True):
+        image = F.imread(src_image_path)
+        _h, _w = self.h, self.w
+        if image.shape[0] < self.h or image.shape[1] < self.w:
+            if strict:
+                raise ValueError('Crop area is larger than the image size')
+            else:
+                _h = image.shape[0] if image.shape[0] < _h else _h
+                _w = image.shape[1] if image.shape[1] < _w else _w
+        n = [(image.shape[0] + _h - 1) // _h, (image.shape[1] + _w - 1) // _w]
+        s = ((image.shape[0] - _h) // (n[0] - 1) if n[0] > 1 else _h,
+             (image.shape[1] - _w) // (n[1] - 1) if n[1] > 1 else _w)
+
+        orig_masks = {}
+        with open(src_label_path, 'r', encoding='utf-8') as f:
+            orig_lines = [line.strip() for line in f.readlines() if line.strip()]
+
+        for i, line in enumerate(orig_lines):
+            parts = line.split()
+            class_id = int(parts[0])
+            coords = list(map(float, parts[1:]))
+            class_mask = orig_masks.setdefault(class_id, np.zeros(image.shape[:2], dtype=np.uint8))
+            points = np.array(coords, dtype=np.float32).reshape(-1, 2) * image.shape[:2][::-1]
+            points = points.astype(np.int32)
+            cv2.fillPoly(class_mask, [points], color=255)
+
+        for r in range(0, n[0]):
+            for c in range(0, n[1]):
+                i, j = r * s[0], c * s[1]
+                # Mutil-language friendly imwrite
+                F.imwrite(dst_image_path, image[i:i + _h, j:j + _w])
+                new_lines = []
+                for class_id, class_mask in orig_masks.items():
+                    crop_mask = class_mask[i:i + _h, j:j + _w]
+                    contours, _ = cv2.findContours(crop_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+                    for contour in contours:
+                        if len(contour) >= 3:
+                            rel_points = contour.squeeze().astype(np.float32) / [_w, _h]
+                            normalized = [f"{p:.6f}" for point in rel_points.tolist() for p in point]
+                            new_lines.append(f"{class_id} " + " ".join(normalized))
+
+        # crop_basename = os.path.basename(crop_img_path).rsplit('.', 1)[0]
+        # label_dir = os.path.join(os.path.dirname(crop_img_path), "labels")
+        # os.makedirs(label_dir, exist_ok=True)
+        # new_label_path = os.path.join(label_dir, f"{crop_basename}.txt")
+
+                with open(dst_label_path, 'w', encoding='utf-8') as f:
+                    if new_lines:
+                        f.write("\n".join(new_lines))
+                    else:
+                        f.write("")

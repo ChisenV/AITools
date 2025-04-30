@@ -4,7 +4,8 @@ import os
 import cv2
 import numpy as np
 
-from AITools import ImageData, ImageFormat, compute_affine_matrix, imread, imshow
+from AITools import ImageData, ImageFormat, compute_affine_matrix, imread, imshow, YOLODataset
+from AITools.comp.processor import VisualizeYOLODataset
 
 
 def d():
@@ -52,4 +53,29 @@ def aff():
 
 
 if __name__ == "__main__":
-    aff()
+    # d = YOLODataset(
+    #     root=r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.1",
+    #     with_label=True,
+    #     task="seg",
+    #     categories={
+    #         0: "elem",
+    #         1: "solder",
+    #         2: "paster",
+    #         3: "device"
+    #     },
+    #     read_image=False
+    # )
+    # assert len(d) == 440, "len(d) == {}".format(len(d))
+    #
+    # VisualizeYOLODataset(
+    #     dataset=d,
+    #     save_dir=r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.1-vis",
+    #
+    # )()
+
+    m = np.zeros((100, 100), dtype=np.int8)
+
+    cv2.fillPoly(m, [np.array([[-1, -1], [0, 50], [50, 50], [50, 0]])], 1)
+
+    imshow("m", m, 0)
+

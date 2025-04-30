@@ -1140,9 +1140,12 @@ class YOLODataset(IterableDataset):
     def _parse_root(self, root, with_image, image_dirname):
         if with_image:
             if isinstance(root, list):
-                self._roots_map = {idx: r for idx, r in enumerate(root) if image_dirname in r}
+                self._roots_map = {idx: r for idx, r in enumerate(root) if self.image_path_sep in r}
             elif isinstance(root, (str, Path)):
-                self._roots_map = {0: Path(root) / image_dirname}
+                if self.image_path_sep in root:
+                    self._roots_map = {0: Path(root)}
+                else:
+                    self._roots_map = {0: Path(root) / image_dirname}
             elif root is None:
                 self._with_image = False
             else:
