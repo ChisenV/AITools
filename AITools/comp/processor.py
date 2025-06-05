@@ -253,7 +253,10 @@ class VisualizeYOLODataset(BaseProcessor):
                 try:
                     class_id = int(parts[0])
                     class_str = self.dataset.categories(class_id)
-                    values = np.array(list(map(float, parts[1:])))
+                    if len(parts[1:]) == 4:
+                        values = np.array(list(map(float, parts[1:])))
+                    elif len(parts[1:]) > 4:
+                        values = np.array(list(map(float, parts[1:5])))
                     if self.dataset.task == 'det':
                         # Expected format: class_id x_center y_center width height
                         if len(values) != 4:
@@ -315,9 +318,29 @@ class VisualizeYOLODataset(BaseProcessor):
         F.imwrite(os.path.join(self.save_dir, basename), im)
 
 
+def parse_args():
+    """
+    Parse arguments for cropping images.
+
+    Returns:
+        args: parsed arguments
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description='Crop images')
+    parser.add_argument('--input_dir', type=str, required=True, help='input directory')
+    parser.add_argument('--output_dir', type=str, required=True, help='output directory')
+    parser.add_argument('--width', type=int, required=True, help='width of the crop area')
+    parser.add_argument('--height', type=int, required=True, help='height of the crop area')
+    parser.add_argument('--suffix', type=str, default='"{}".format(basename)',
+                        help='suffix of the output file names')
+    parser.add_argument('--format', type=str, default='png', help='format of the output file names')
+    return parser.parse_args()
+
+
+@PROCESSORS.register_component
 class CropImages:
     def __init__(self, input_dir, output_dir, w: int, h: int, suffix='"{}__{}___{}".format(basename, j, i)',
-                 fmt='png', deal_with_label=False, yolo_task='det'):
+                 fmt='png', deal_with_label=False, yolo_task='det', dump_empty=True):
         """
         Crop images in a directory and save them to another directory.
 
@@ -330,28 +353,29 @@ class CropImages:
             fmt: format of the output file names
         """
         self.input_dir = input_dir
-        self.output_dir = output_dir
+        self.output_dir = os.path.join(output_dir, "images") if deal_with_label else output_dir
         self.w = w
         self.h = h
         self.suffix = suffix
         self.format = fmt
         self.deal_with_label = deal_with_label
         self.yolo_task = yolo_task
+        self.dump_empty = dump_empty
 
-    def process(self, src_path, dst_path, strict=True):
-        if not os.path.exists(dst_path):
-            os.makedirs(dst_path)
-        print(f'Crop images in \n\t{src_path} \nto \n\t{dst_path} \n'
+    def __call__(self, strict=True):
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+        print(f'Crop images in \n\t{self.input_dir} \nto \n\t{self.output_dir} \n'
               f'with width {self.w} and height {self.h} ......')
         if self.w == 0 or self.h == 0:
             raise ValueError('Width and height must be greater than 0')
-        pbar = tqdm(os.listdir(src_path), desc='Cropping images')
+        pbar = tqdm(os.listdir(self.input_dir), desc='Cropping images')
         for filename in pbar:
             basename, ext = os.path.splitext(filename)
             if ext[1:] not in ['jpg', 'png', 'jpeg', 'bmp']:
                 continue
             # Mutil-language friendly imread
-            image_path = os.path.join(src_path, filename)
+            image_path = os.path.join(self.input_dir, filename)
             image = F.imread(image_path)
             _h, _w = self.h, self.w
             if image.shape[0] < self.h or image.shape[1] < self.w:
@@ -367,58 +391,147 @@ class CropImages:
                 for c in range(0, n[1]):
                     i, j = r * s[0], c * s[1]
                     # Mutil-language friendly imwrite
-                    crop_img_path = os.path.join(dst_path, str(eval(self.suffix)) + f".{self.format}")
-                    F.imwrite(crop_img_path, image[i:i + _h, j:j + _w])
+                    crop_img_path = os.path.join(self.output_dir, str(eval(self.suffix)) + f".{self.format}")
+                    write = True
+                    if self.deal_with_label:
+                        write = self.deal_with_yolo_labels(image_path, crop_img_path, image.shape[:2],
+                                                           (j, i, _w, _h), self.dump_empty)
+                    if write or self.dump_empty:
+                        F.imwrite(crop_img_path, image[i:i + _h, j:j + _w])
                     pbar.set_postfix({'output': eval(self.suffix) + f".{self.format}"})
 
-    def process_yolo(self, src_image_path, src_label_path, dst_image_path, dst_label_path, strict=True):
-        image = F.imread(src_image_path)
-        _h, _w = self.h, self.w
-        if image.shape[0] < self.h or image.shape[1] < self.w:
-            if strict:
-                raise ValueError('Crop area is larger than the image size')
-            else:
-                _h = image.shape[0] if image.shape[0] < _h else _h
-                _w = image.shape[1] if image.shape[1] < _w else _w
-        n = [(image.shape[0] + _h - 1) // _h, (image.shape[1] + _w - 1) // _w]
-        s = ((image.shape[0] - _h) // (n[0] - 1) if n[0] > 1 else _h,
-             (image.shape[1] - _w) // (n[1] - 1) if n[1] > 1 else _w)
+    def deal_with_yolo_labels(self, orig_img_path, crop_img_path, orig_size, crop_pos, dump_empty=True):
+        """处理多种YOLO格式标签"""
+        orig_label_path = F.img2label_path(orig_img_path)
+        if not os.path.exists(orig_label_path):
+            return
 
-        orig_masks = {}
-        with open(src_label_path, 'r', encoding='utf-8') as f:
+        with open(orig_label_path, 'r', encoding='utf-8') as f:
             orig_lines = [line.strip() for line in f.readlines() if line.strip()]
 
-        for i, line in enumerate(orig_lines):
+        crop_x, crop_y, crop_w, crop_h = crop_pos
+        orig_h, orig_w = orig_size
+        new_lines = []
+
+        if self.yolo_task in {'det', 'obb'}:
+            for line in orig_lines:
+                parts = line.split()
+                class_id = parts[0]
+                coords = list(map(float, parts[1:]))
+
+                if self.yolo_task == 'det':
+                    processed = self._process_det(coords, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h)
+                elif self.yolo_task == 'obb':
+                    processed = self._process_obb(coords, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h)
+                else:
+                    processed = None
+
+                if processed:
+                    new_lines.append(f"{class_id} {' '.join(processed)}")
+        elif self.yolo_task == 'seg':
+            processed = self._process_seg(orig_lines, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h)
+            new_lines = processed if processed else []
+
+        new_label_path = F.img2label_path(crop_img_path)
+        os.makedirs(os.path.dirname(new_label_path), exist_ok=True)
+
+        if dump_empty:
+            with open(new_label_path, 'w', encoding='utf-8') as f:
+                if new_lines:
+                    f.write("\n".join(new_lines))
+                else:
+                    f.write("")
+        else:
+            if new_lines:
+                with open(new_label_path, 'w', encoding='utf-8') as f:
+                    f.write("\n".join(new_lines))
+
+        return not new_lines == [] # True: not empty, False: empty
+
+    def _process_det(self, coords, orig_w, orig_h, x, y, w, h):
+        """处理目标检测标签
+        @params: coords: [cx, cy, bw, bh]
+        @params: orig_w: 原图大小
+        @params: orig_h: 原图大小
+        @params: x: 裁剪框左上角x坐标
+        @params: y: 裁剪框左上角y坐标
+        @params: w: 裁剪框宽度
+        @params: h: 裁剪框高度
+        """
+        cx, cy, bw, bh = coords
+        # 转换到绝对坐标
+        cx_abs = cx * orig_w
+        cy_abs = cy * orig_h
+        bw_abs = bw * orig_w
+        bh_abs = bh * orig_h
+
+        # 计算边界框
+        xmin = cx_abs - bw_abs / 2
+        ymin = cy_abs - bh_abs / 2
+        xmax = cx_abs + bw_abs / 2
+        ymax = cy_abs + bh_abs / 2
+
+        # 转换到裁剪坐标系
+        new_xmin = max(xmin - x, 0)
+        new_ymin = max(ymin - y, 0)
+        new_xmax = min(xmax - x, w)
+        new_ymax = min(ymax - y, h)
+
+        # 有效性检查
+        if new_xmax <= 0 or new_ymax <= 0 or new_xmin >= w or new_ymin >= h:
+            return None
+
+        # 转换回YOLO格式
+        new_cx = (new_xmin + new_xmax) / (2 * w)
+        new_cy = (new_ymin + new_ymax) / (2 * h)
+        new_bw = (new_xmax - new_xmin) / w
+        new_bh = (new_ymax - new_ymin) / h
+
+        return [f"{new_cx:.6f}", f"{new_cy:.6f}", f"{new_bw:.6f}", f"{new_bh:.6f}"]
+
+    def _process_obb(self, coords, orig_w, orig_h, x, y, w, h):
+        """处理旋转框标签"""
+        # 转换所有顶点坐标 (x1,y1,x2,y2,x3,y3,x4,y4)
+        points = [(coords[i] * orig_w - x, coords[i + 1] * orig_h - y)
+                  for i in range(0, 8, 2)]
+
+        # 有效性检查：至少有一个顶点在裁剪区域内
+        valid_points = [p for p in points
+                        if 0 <= p[0] <= w and 0 <= p[1] <= h]
+        if not valid_points:
+            return None
+
+        # 转换回相对坐标并保持顶点顺序
+        normalized = [f"{(p[0] / w):.6f}" if i % 2 == 0 else f"{(p[1] / h):.6f}"
+                      for p in points for i in (0, 1)]
+
+        return normalized
+
+    def _process_seg(self, orig_lines, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h):
+        """处理分割多边形标签, 将位于shape=[w，h]内的多边形轮廓提取出来"""
+        new_lines = []
+        mask_map = {}
+        for line in orig_lines:
             parts = line.split()
             class_id = int(parts[0])
+            class_mask = mask_map.setdefault(class_id, np.zeros((orig_h, orig_w), dtype=np.uint8))
             coords = list(map(float, parts[1:]))
-            class_mask = orig_masks.setdefault(class_id, np.zeros(image.shape[:2], dtype=np.uint8))
-            points = np.array(coords, dtype=np.float32).reshape(-1, 2) * image.shape[:2][::-1]
-            points = points.astype(np.int32)
-            cv2.fillPoly(class_mask, [points], color=255)
 
-        for r in range(0, n[0]):
-            for c in range(0, n[1]):
-                i, j = r * s[0], c * s[1]
-                # Mutil-language friendly imwrite
-                F.imwrite(dst_image_path, image[i:i + _h, j:j + _w])
-                new_lines = []
-                for class_id, class_mask in orig_masks.items():
-                    crop_mask = class_mask[i:i + _h, j:j + _w]
-                    contours, _ = cv2.findContours(crop_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-                    for contour in contours:
-                        if len(contour) >= 3:
-                            rel_points = contour.squeeze().astype(np.float32) / [_w, _h]
-                            normalized = [f"{p:.6f}" for point in rel_points.tolist() for p in point]
-                            new_lines.append(f"{class_id} " + " ".join(normalized))
+            if len(coords) % 2 != 0:
+                raise ValueError("The number of coordinates must be an even number.")
 
-        # crop_basename = os.path.basename(crop_img_path).rsplit('.', 1)[0]
-        # label_dir = os.path.join(os.path.dirname(crop_img_path), "labels")
-        # os.makedirs(label_dir, exist_ok=True)
-        # new_label_path = os.path.join(label_dir, f"{crop_basename}.txt")
+            abs_points = np.array(coords, dtype=np.float32).reshape(-1, 2) * [orig_w, orig_h]
+            cv2.fillPoly(class_mask, [np.array(abs_points, dtype=np.int32)], color=255)
 
-                with open(dst_label_path, 'w', encoding='utf-8') as f:
-                    if new_lines:
-                        f.write("\n".join(new_lines))
-                    else:
-                        f.write("")
+        # 创建裁剪后的mask
+        for class_id, class_mask in mask_map.items():
+            crop_mask = class_mask[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+            # 寻找新轮廓（使用最外层轮廓）
+            contours, _ = cv2.findContours(crop_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
+            for contour in contours:
+                if len(contour) >= 3:  # 有效多边形至少需要3个点
+                    # 转换为相对坐标
+                    rel_points = contour.squeeze().astype(np.float32) / [crop_w, crop_h]
+                    normalized = [f"{p:.6f}" for point in rel_points.tolist() for p in point]
+                    new_lines.append(f"{class_id} " + " ".join(normalized))
+        return new_lines

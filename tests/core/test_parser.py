@@ -10,7 +10,7 @@ from AITools import XMLParser, JSONParser, YAMLParser
 
 def test_parser():
     print()
-    data = XMLParser().load(r"E:\python_project\AIToolsV2\AITools\tests\core\test_config.xml")
+    data = XMLParser().load(r"E:\python_ai_dataset\foreign-object-detect\气泡\BUBBLE-1\Annotations\fov_22_top.xml")
     print(data)
 
     # JSONParser().dump(data, r"G:\project\AITools\tests\core\test_config.json")

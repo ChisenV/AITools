@@ -79,7 +79,7 @@ class ComponentManager:
 
     def __repr__(self) -> str:
         name_str = self._name if self._name else self.__class__.__name__
-        return "{}:{}".format(name_str, list(self._components_dict.keys()))
+        return "{}:{}".format(name_str, set(self._components_dict.keys()))
 
     def __getitem__(self, item: str) -> Union[type, Callable]:
         if item not in self._components_dict.keys():

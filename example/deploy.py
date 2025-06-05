@@ -1,8 +1,7 @@
 import time
 
-import AITools
-from AITools import ImageData
 from AITools.comp.backend import TensorRTModel
+from AITools.comp.functions import imread
 from AITools.comp.processor import WarpAffineNorm2NCHW
 
 if __name__ == '__main__':
@@ -16,7 +15,7 @@ if __name__ == '__main__':
 
     preprocessor = WarpAffineNorm2NCHW(model.info["inputs"][0], enable_normalization=True)
 
-    im = AITools.imread(
+    im = imread(
         r"E:\python_ai_dataset\OCR\cls\Val500\(3D-OCR-SMT_IC)3D##AiDian##20231215102458##fov_2_0@[8]@[3262,1881]@[a=0]_0_1.bmp"
     )
     image = preprocessor.run(im, format="BGR")

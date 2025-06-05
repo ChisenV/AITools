@@ -8,7 +8,7 @@ from AITools.core.manager import ComponentManager
 
 PARSERS = ComponentManager("parsers")
 
-
+# TODO: load by string
 class Parser(ABC):
     """Parser base class"""
     _SUPPORTED_EXTENSIONS = []

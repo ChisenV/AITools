@@ -22,7 +22,11 @@ __all__ = [
     "rotate_image_min",
     "order_rectangle_points",
     "warpAffine_points",
+    "img2label_path",
+    "img2label_paths",
     "union_label",
+    "union_labels",
+    "convertVOC2YOLO",
 ]
 
 from .parser import XMLParser
@@ -543,6 +547,13 @@ def union_label(label_files, dst_file):
                     f.write(f"{dst_dirname}/" + line)
 
 
+def union_labels(dst_dir):
+    label_files = [os.path.join(dst_dir, i, "Label.txt")
+                   for i in os.listdir(dst_dir)
+                   if os.path.isdir(os.path.join(dst_dir, i))]
+    union_label(label_files, os.path.join(dst_dir, "Label.txt"))
+
+
 @FUNCTIONS.register_component
 def img2label_path(img_path, image_dirname="images", label_dirname="labels"):
     """Define label paths as a function of image paths."""
@@ -555,3 +566,21 @@ def img2label_paths(img_paths, image_dirname="images", label_dirname="labels"):
     """Define label paths as a function of image paths."""
     sa, sb = f"{os.sep}{image_dirname}{os.sep}", f"{os.sep}{label_dirname}{os.sep}"  # /images/, /labels/ substrings
     return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt" for x in img_paths]
+
+
+@FUNCTIONS.register_component
+def convertVOC2YOLO(voc_dataset, dst_dir, label_postfix=".txt"):
+    os.makedirs(dst_dir, exist_ok=True)
+    for i, item in enumerate(voc_dataset):
+        _, lab_path = item
+        file_name = os.path.basename(lab_path).rsplit(".", 1)[0] + label_postfix
+        data = XMLParser().load(lab_path)
+        objs = data['annotation']['object']
+        im_w, im_h = data['annotation']['size']['width'], data['annotation']['size']['height']
+        with open(os.path.join(dst_dir, file_name), "w") as f:
+            for obj in objs:
+                cla_id = voc_dataset.categories(obj['name'])
+                bbox = obj['bndbox']
+                x, y, w, h = bbox['xmin'], bbox['ymin'], bbox['xmax'] - bbox['xmin'], bbox['ymax'] - bbox['ymin']
+                x, y, w, h = float(x + w/2) / im_w, float(y + h/2) / im_h, float(w) / im_w, float(h) / im_h
+                f.write(f"{cla_id} {x} {y} {w} {h}\n")

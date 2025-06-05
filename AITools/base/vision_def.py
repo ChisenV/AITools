@@ -5,9 +5,6 @@ from PIL import Image
 
 import numpy as np
 
-from . import torch
-from AITools.utils.compatibility import StrEnum
-
 __all__ = [
     "IMG_FORMATS", 
     "VID_FORMATS", 
@@ -27,6 +24,8 @@ __all__ = [
     "IOConfig",
 ]
 
+from . import torch
+from AITools.utils.compatibility import StrEnum
 
 IMG_FORMATS = ["bmp", "jpg", "jpeg", "png", "tif", "tiff", "dng", "webp", "mpo"]
 VID_FORMATS = ["mp4", "mov", "avi", "mkv"]

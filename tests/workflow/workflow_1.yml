@@ -1,0 +1,20 @@
+type: ModelInferWorkflow
+
+dataset:
+  type: OCRDatasetV2
+  root: ""
+  with_label: true
+  iterable: true
+
+model:
+  dependencies: [preprocessor]
+  type: TensorRTModel
+  path: ""
+  batch_config: [1, 4, 8]
+  use_fp16: true
+
+preprocessor:
+  type: WarpAffineNorm2NCHW
+  dependencies: [dataset]
+  model_info: model.info
+
