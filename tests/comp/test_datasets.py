@@ -554,18 +554,28 @@ def test_VOCDataset():
         print(i)
 
 def test_convertVOC2yolo():
-    dir_data = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\BUBBLE-1"
-    dst_dir = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\BUBBLE-1\labels"
-    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\BUBBLE-1\images_crop_{}"
-    # d = VOCDataset(dir_data, with_label=True, categories={0:"UV_BUBBLE"}, read_image=False)
+    dir_data = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\UV_BUBBLE"
+    dst_dir = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\UV_BUBBLE\labels"
+    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\UV_BUBBLE\images_crop_{}"
+    # d = VOCDataset(dir_data, with_label=True, categories={0: "UV_BUBBLE"}, read_image=False)
     # convertVOC2YOLO(d, dst_dir)
     # assert len(os.listdir(dst_dir)) == len(d), "len(os.listdir(dst_dir)) == {}".format(len(os.listdir(dst_dir)))
-
-    # size = 640
+    #
+    # size = 1024
     # CropImages(os.path.join(dir_data, "images"), crop_dir.format(size),
     #            size, size, fmt="png", deal_with_label=True, yolo_task='det', dump_empty=False)()
+    #
+    # d_y = YOLODataset(crop_dir.format(size),
+    #                   image_dirname="images",
+    #                   label_dirname="labels",
+    #                   with_label=True,
+    #                   task="det",
+    #                   categories={0: "BUBBLE"},
+    #                   read_image=False)
+    #
+    # VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir.format(size), "vis"))()
 
-    d_y = YOLODataset(r"E:\opensource_project\ultralytics-individual\runs\detect\predict",
+    d_y = YOLODataset(r"E:\opensource_project\ultralytics-individual\runs\detect\predict6",
                       image_dirname="images",
                       label_dirname="labels",
                       with_label=True,
@@ -573,4 +583,24 @@ def test_convertVOC2yolo():
                       categories={0: "BUBBLE"},
                       read_image=False)
 
-    VisualizeYOLODataset(d_y, save_dir=os.path.join(r"E:\opensource_project\ultralytics-individual\runs\detect\predict", "vis"))()
+    VisualizeYOLODataset(d_y, save_dir=os.path.join(r"E:\opensource_project\ultralytics-individual\runs\detect\predict6", "vis"))()
+
+
+def test_union_labels():
+    import json
+    dst_dir = r"E:\python_ai_dataset\OCR\det\fromAITrain"
+    # label_files = [os.path.join(dst_dir, i, "Label.txt")
+    #                for i in os.listdir(dst_dir)
+    #                if i != "rec_20250313_v0.1_val"]
+    # union_label(label_files, os.path.join(dst_dir, "Label.txt"))
+
+    new_label = []
+    with open(os.path.join(dst_dir, "Label_val.txt"), "r", encoding="utf-8") as f1:
+        for line in f1:
+            path, label = line.split("\t")
+            data = json.loads(label)
+            lab_str = data[0]["transcription"]
+            new_label.append(path+"\t"+lab_str)
+    with open(os.path.join(dst_dir, "Label_val2.txt"), "w", encoding="utf-8") as f2:
+        f2.write("\n".join(new_label))
+
