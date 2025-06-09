@@ -1328,12 +1328,13 @@ class SeparateDataset(IterableDataset):
         raise NotImplementedError
 
     def subset(self, indices: Union[list]):
-        subset = YOLODataset(
+        subset = eval(self.__class__.__name__)(
             root=None,
             with_image=self.with_image,
             with_label=self.with_label,
             image_dirname=self.image_dirname,
             label_dirname=self.label_dirname,
+            categories=self._cate_id2name,
             task=self.task,
             read_image=self._read_image,
             transformers=self.transformers,
@@ -1525,8 +1526,8 @@ def split(dataset, ratio: Union[float, List[float]] = None, subset_name=None, se
         ratio = [ratio, 1 - ratio]
     if subset_name is None:
         subset_name = ['train', 'val', 'test']
-    if sum(ratio) != 1:
-        raise ValueError("Sum of ratio must be 1.")
+    if abs(sum(ratio) - 1.0) > 1.0e-6:
+        raise ValueError("Sum of ratio must be 1, current sum ratio: ", sum(ratio), abs(1 - sum(ratio)))
     if len(ratio) > len(subset_name):
         raise ValueError("Length of ratio must be less than or equal to length of subset_name.")
 
@@ -1583,6 +1584,7 @@ def dump_yolo_dataset(
         destination: str,
         image_file_op: Union[str, Callable] = "copy",
         label_file_op: Union[str, Callable] = "copy",
+        sub_dirname: str = "",
         tqdm_enable: bool = True,
 ):
     if not dataset:
@@ -1608,7 +1610,9 @@ def dump_yolo_dataset(
         iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
         for idx, (old_image_path, old_label_path) in enumerate(iterator):
             old_root, image_name = old_image_path.rsplit(dataset.image_path_sep, 1)
-            new_image_path = dataset.image_path_sep.join([destination, image_name])
+            path_piece = [destination, image_name if sub_dirname == "" else sub_dirname]
+            new_image_path = dataset.image_path_sep.join(path_piece)
+            new_image_path = new_image_path if sub_dirname == "" else os.path.join(new_image_path, image_name)
             new_label_path = dataset.img2label_path(new_image_path)
             new_image_dir = os.path.dirname(new_image_path)
             os.makedirs(new_image_dir, exist_ok=True)

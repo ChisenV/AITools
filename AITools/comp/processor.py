@@ -253,12 +253,11 @@ class VisualizeYOLODataset(BaseProcessor):
                 try:
                     class_id = int(parts[0])
                     class_str = self.dataset.categories(class_id)
-                    if len(parts[1:]) == 4:
-                        values = np.array(list(map(float, parts[1:])))
-                    elif len(parts[1:]) > 4:
-                        values = np.array(list(map(float, parts[1:5])))
+                    values = np.array(list(map(float, parts[1:])))
                     if self.dataset.task == 'det':
                         # Expected format: class_id x_center y_center width height
+                        if len(parts[1:]) == 5:
+                            values = np.array(list(map(float, parts[1:5])))
                         if len(values) != 4:
                             raise ValueError(f"Detection label requires 4 values, got {len(values)}")
                         x1, y1 = values[0] - values[2] / 2, values[1] - values[3] / 2
@@ -413,13 +412,13 @@ class CropImages:
         orig_h, orig_w = orig_size
         new_lines = []
 
-        if self.yolo_task in {'det', 'obb'}:
+        if self.yolo_task in {'det', 'detect', 'obb'}:
             for line in orig_lines:
                 parts = line.split()
                 class_id = parts[0]
                 coords = list(map(float, parts[1:]))
 
-                if self.yolo_task == 'det':
+                if self.yolo_task in {'det', 'detect'}:
                     processed = self._process_det(coords, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h)
                 elif self.yolo_task == 'obb':
                     processed = self._process_obb(coords, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h)

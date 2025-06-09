@@ -9,6 +9,7 @@ import numpy as np
 from AITools.comp.dataset import *
 from AITools.comp.dataset import VOCDataset
 from AITools.comp.functions import *
+from AITools.comp.functions import convertCOCO2YOLO
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
 
 abs_file = r"E:\python_ai_dataset\train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
@@ -538,6 +539,7 @@ def test_YOLODataset_init():
     #     label_op
     # )
 
+
 def test_res_img():
     dir_path = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side\org"
     dst_path = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side"
@@ -547,11 +549,13 @@ def test_res_img():
         crop = im[0:2000, :]
         imwrite(os.path.join(dst_path, os.path.basename(i)), crop)
 
+
 def test_VOCDataset():
     dir_data = r"E:\python_ai_dataset\foreign-object-detect\气泡\BUBBLE-1"
     d = VOCDataset(dir_data, with_label=True, categories={0:"BUBBLE"}, read_image=False)
     for i in d:
         print(i)
+
 
 def test_convertVOC2yolo():
     dir_data = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\UV_BUBBLE"
@@ -575,7 +579,8 @@ def test_convertVOC2yolo():
     #
     # VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir.format(size), "vis"))()
 
-    d_y = YOLODataset(r"E:\opensource_project\ultralytics-individual\runs\detect\predict6",
+    vis_yolo = r"E:\opensource_project\ultralytics-individual\runs\detect\predict8"
+    d_y = YOLODataset(vis_yolo,
                       image_dirname="images",
                       label_dirname="labels",
                       with_label=True,
@@ -583,7 +588,33 @@ def test_convertVOC2yolo():
                       categories={0: "BUBBLE"},
                       read_image=False)
 
-    VisualizeYOLODataset(d_y, save_dir=os.path.join(r"E:\opensource_project\ultralytics-individual\runs\detect\predict6", "vis"))()
+    VisualizeYOLODataset(d_y, save_dir=os.path.join(vis_yolo, "vis"))()
+
+
+def test_coco2yolo():
+    coco_json = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\annotations\annotations.json"
+    save_dir = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\annotations"
+
+    def cls_filter(cls):
+        return cls >= 2
+
+    # convertCOCO2YOLO(coco_json, save_dir=save_dir, use_segments=True, cls_filter=cls_filter)
+
+    src_data = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org"
+    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org\images_crop_{}"
+    size = 2000
+    CropImages(os.path.join(src_data, "images"), crop_dir.format(size),
+               size, size, fmt="png", deal_with_label=True, yolo_task='seg', dump_empty=False)()
+
+    d_y = YOLODataset(crop_dir.format(size),
+                      image_dirname="images",
+                      label_dirname="labels",
+                      with_label=True,
+                      task="seg",
+                      categories={0: "entity", 1: "solder"},
+                      read_image=False)
+
+    VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir.format(size), "vis"))()
 
 
 def test_union_labels():
@@ -604,3 +635,30 @@ def test_union_labels():
     with open(os.path.join(dst_dir, "Label_val2.txt"), "w", encoding="utf-8") as f2:
         f2.write("\n".join(new_label))
 
+
+def test_rename_yoloDataset():
+    dir_data = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org\images_crop_2000"
+    dy = YOLODataset(dir_data,
+                     with_label=True,
+                     task="seg",
+                     categories={0: "entity", 1: "solder"})
+
+    for i in dy:
+        im_path, la_path = i
+        im_dir_path = os.path.dirname(im_path)
+        la_dir_path = os.path.dirname(la_path)
+        os.rename(im_path, os.path.join(im_dir_path, "fod-20250527_" + os.path.basename(im_path)))
+        os.rename(la_path, os.path.join(la_dir_path, "fod-20250527_" + os.path.basename(la_path)))
+
+
+def test_splitYOLODataset():
+    dir_data = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org\images_crop_2000"
+    dst_dir = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org\images_crop_2000_split"
+    dy = YOLODataset(dir_data,
+                     with_label=True,
+                     task="seg",
+                     categories={0: "entity", 1: "solder"})
+    subset = dy.split(ratio=[0.7, 0.2, 0.1], seed=20250609)
+    for i, (name, s) in enumerate(subset.items()):
+        sub_dy = dy.subset(s)
+        dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
