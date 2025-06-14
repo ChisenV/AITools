@@ -559,35 +559,109 @@ def union_labels(dst_dir):
 
 
 @FUNCTIONS.register_component
-def img2label_path(img_path, image_dirname="images", label_dirname="labels"):
+def img2label_path(img_path, image_dirname="images", label_dirname="labels", postfix=".txt"):
     """Define label paths as a function of image paths."""
     sa, sb = f"{os.sep}{image_dirname}{os.sep}", f"{os.sep}{label_dirname}{os.sep}"  # /images/, /labels/ substrings
-    return sb.join(img_path.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt"
+    return sb.join(img_path.rsplit(sa, 1)).rsplit(".", 1)[0] + postfix
 
 
 @FUNCTIONS.register_component
-def img2label_paths(img_paths, image_dirname="images", label_dirname="labels"):
+def img2label_paths(img_paths, image_dirname="images", label_dirname="labels", postfix=".txt"):
     """Define label paths as a function of image paths."""
     sa, sb = f"{os.sep}{image_dirname}{os.sep}", f"{os.sep}{label_dirname}{os.sep}"  # /images/, /labels/ substrings
-    return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + ".txt" for x in img_paths]
+    return [sb.join(x.rsplit(sa, 1)).rsplit(".", 1)[0] + postfix for x in img_paths]
 
 
 @FUNCTIONS.register_component
-def convertVOC2YOLO(voc_dataset, dst_dir, label_postfix=".txt"):
-    os.makedirs(dst_dir, exist_ok=True)
+def convertVOC2YOLO(voc_dataset, save_dir, label_postfix=".txt", empty_label=True):
+    os.makedirs(save_dir, exist_ok=True)
     for i, item in enumerate(voc_dataset):
-        _, lab_path = item
-        file_name = os.path.basename(lab_path).rsplit(".", 1)[0] + label_postfix
-        data = XMLParser().load(lab_path)
-        objs = data['annotation']['object']
-        im_w, im_h = data['annotation']['size']['width'], data['annotation']['size']['height']
-        with open(os.path.join(dst_dir, file_name), "w") as f:
-            for obj in objs:
-                cla_id = voc_dataset.categories(obj['name'])
-                bbox = obj['bndbox']
-                x, y, w, h = bbox['xmin'], bbox['ymin'], bbox['xmax'] - bbox['xmin'], bbox['ymax'] - bbox['ymin']
-                x, y, w, h = float(x + w/2) / im_w, float(y + h/2) / im_h, float(w) / im_w, float(h) / im_h
-                f.write(f"{cla_id} {x} {y} {w} {h}\n")
+        img_path, lab_path = item
+        xml_dump = False
+        try:
+            file_name = os.path.basename(lab_path).rsplit(".", 1)[0] + label_postfix
+            if not os.path.exists(lab_path):
+                if empty_label:
+                    open(os.path.join(save_dir, file_name), "w").close()
+                continue
+            data = XMLParser().load(lab_path)
+            objs = data['annotation'].get('object', [])
+            if isinstance(objs, dict):
+                objs = [objs]
+            im_w, im_h = data['annotation']['size']['width'], data['annotation']['size']['height']
+            if im_h <= 0 or im_w <= 0:
+                h, w = imread(img_path).shape[0:2]
+                im_w, im_h = w, h
+                data['annotation']['size']['width'], data['annotation']['size']['height'] = w, h
+                xml_dump = True
+            with open(os.path.join(save_dir, file_name), "w") as f:
+                for i, obj in enumerate(objs):
+                    cla_id = voc_dataset.categories(obj['name'])
+                    if voc_dataset.task == "det":
+                        bbox = obj['bndbox']
+                        x, y, w, h = bbox['xmin'], bbox['ymin'], bbox['xmax'] - bbox['xmin'], bbox['ymax'] - bbox['ymin']
+                        x, y, w, h = float(x + w / 2) / im_w, float(y + h / 2) / im_h, float(w) / im_w, float(h) / im_h
+                        f.write(f"{cla_id} {x} {y} {w} {h}\n")
+                    elif voc_dataset.task == "obb":
+                        t = obj.get('type', '')
+                        if t == 'robndbox':
+                            if "segmentation" in obj:
+                                try:
+                                    seg = obj['segmentation']
+                                    _seg_x1, _seg_y1, _seg_x2, _seg_y2 = seg['x1'], seg['y1'], seg['x2'], seg['y2']
+                                    _seg_x3, _seg_y3, _seg_x4, _seg_y4 = seg['x3'], seg['y3'], seg['x4'], seg['y4']
+                                    (seg_x1, seg_y1), (seg_x2, seg_y2), (seg_x3, seg_y3), (seg_x4, seg_y4) = cv2.RotatedRect(
+                                        (_seg_x1, _seg_y1), (_seg_x2, _seg_y2), (_seg_x3, _seg_y3)
+                                    ).points()
+                                except Exception as e:
+                                    seg_x1, seg_y1, seg_x2, seg_y2, seg_x3, seg_y3, seg_x4, seg_y4 = 0, 0, 0, 0, 0, 0, 0, 0
+                            bbox = obj.get('robndbox', {})
+                            cx, cy, w, h, angle = bbox['cx'], bbox['cy'], bbox['w'], bbox['h'], bbox['angle']
+                            (x1, y1), (x2, y2), (x3, y3), (x4, y4) = cv2.RotatedRect((cx, cy), (w, h), np.rad2deg(angle)).points()
+                            if (seg_x1, seg_y1) != (x1, y1) or (seg_x2, seg_y2) != (x2, y2) or (seg_x3, seg_y3) != (x3, y3) or (seg_x4, seg_y4) != (x4, y4):
+                                if isinstance(data['annotation']['object'], list):
+                                    data['annotation']['object'][i]['segmentation'] = {
+                                        'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
+                                        'x3': x3, 'y3': y3, 'x4': x4, 'y4': y4,
+                                    }
+                                elif isinstance(data['annotation']['object'], dict):
+                                    data['annotation']['object']['segmentation'] = {
+                                        'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
+                                        'x3': x3, 'y3': y3, 'x4': x4, 'y4': y4,
+                                    }
+                                xml_dump = True
+                        elif t == 'bndbox':
+                            bbox = obj.get('bndbox', {})
+                            x1, y1, x3, y3 = bbox['xmin'], bbox['ymin'], bbox['xmax'], bbox['ymax']
+                            x2, y2, x4, y4 = x3, y1, x1, y3
+                            new_obj = {
+                                'name': obj['name'], 'type': 'robndbox', 'pose': 'Unspecified',
+                                'truncated': 1, 'difficult': 0,
+                                'robndbox': {
+                                    'cx': (x1 + x3) / 2, 'cy': (y1 + y3) / 2,
+                                    'w': x3 - x1, 'h': y3 - y1, 'angle': 0
+                                },
+                                'segmentation': {
+                                    'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
+                                    'x3': x3, 'y3': y3, 'x4': x4, 'y4': y4,
+                                }
+                            }
+                            if isinstance(data['annotation']['object'], list):
+                                data['annotation']['object'][i] = new_obj
+                            elif isinstance(data['annotation']['object'], dict):
+                                data['annotation']['object'] = new_obj
+                            xml_dump = True
+                        else:
+                            continue
+                        x1, y1, x2, y2 = float(x1) / im_w, float(y1) / im_h, float(x2) / im_w, float(y2) / im_h
+                        x3, y3, x4, y4 = float(x3) / im_w, float(y3) / im_h, float(x4) / im_w, float(y4) / im_h
+                        f.write(f"{cla_id} {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
+            if xml_dump:
+                XMLParser().dump(data, lab_path, indent='')
+                # print("New dump xml:", lab_path)
+        except Exception as e:
+            print(img_path, lab_path, str(e))
+            raise e
 
 
 def make_dirs(dir="new_dir/"):

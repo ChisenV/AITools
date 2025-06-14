@@ -600,10 +600,10 @@ def test_coco2yolo():
 
     # convertCOCO2YOLO(coco_json, save_dir=save_dir, use_segments=True, cls_filter=cls_filter)
 
-    src_data = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org"
-    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org\images_crop_{}"
-    size = 2000
-    CropImages(os.path.join(src_data, "images"), crop_dir.format(size),
+    src_data = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-2000\images\val"
+    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-{}\images\val"
+    size = 1280
+    CropImages(src_data, crop_dir.format(size),
                size, size, fmt="png", deal_with_label=True, yolo_task='seg', dump_empty=False)()
 
     d_y = YOLODataset(crop_dir.format(size),
@@ -662,3 +662,99 @@ def test_splitYOLODataset():
     for i, (name, s) in enumerate(subset.items()):
         sub_dy = dy.subset(s)
         dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
+
+
+def test_voc2yolo():
+    categories = {
+        0: "DIP_IC",
+        1: "SMT_BGA",
+        2: "SMT_Capacitor",
+        3: "SMT_Diode",
+        4: "SMT_FOD",
+        5: "SMT_IC",
+        6: "SMT_Inductor",
+        7: "SMT_LED",
+        8: "SMT_Mosfet",
+        9: "SMT_QFN",
+        10: "SMT_Resistor",
+        11: "SMT_Resistor_OCR",
+        12: "SMT_TantalumCapacitors",
+        13: "SMT_Transistor",
+    }
+    voc_dir =r"E:\python_ai_dataset\obb\AILocate-V2.8"
+    dst_dir =r"E:\python_ai_dataset\obb\AILocate-V2.8-splits"
+    voc_list = [os.path.join(voc_dir, d) for d in os.listdir(voc_dir)]
+    for voc in voc_list:
+        if not os.path.isdir(voc):
+            continue
+        # vd = VOCDataset(voc,
+        #                 with_label=True,
+        #                 image_dirname="JPEGImages",
+        #                 label_dirname="Annotations",
+        #                 categories=categories,
+        #                 task='obb',)
+        #
+        # convertVOC2YOLO(vd, save_dir=os.path.join(voc, "labels"))
+
+        dy = YOLODataset(voc,
+                          image_dirname=r"JPEGImages",
+                          label_dirname=r"labels",
+                          with_label=True,
+                          task="obb",
+                          categories=categories,
+                          read_image=False)
+
+        subset = dy.split(ratio=[0.6, 0.2, 0.2], seed=20250613)
+        cur_dirname = os.path.basename(voc)
+        for i, (name, s) in enumerate(subset.items()):
+            print(f"subset len {len(s) = }")
+            if len(s) == 0:
+                print(voc, len(dy))
+                continue
+            sub_dy = dy.subset(s)
+            dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=os.path.join(name, cur_dirname))
+
+        # VisualizeYOLODataset(dy, save_dir=os.path.join(voc_dir, "vis_all"))()
+    # subset = ["train", "val", "test"]
+    # subset_dir = [os.path.join(dst_dir, i) for i in subset]
+    # subset_dirnames = os.listdir(subset_dir[0])
+    # for i in subset_dirnames:
+    #
+    # subset = d_y.split(ratio=[0.7, 0.2, 0.1], seed=20250612)
+    # for i, (name, s) in enumerate(subset.items()):
+    #     sub_dy = d_y.subset(s)
+    #     dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
+
+def test_voc2yolo2():
+    dir_path = r"E:\python_ai_dataset\obb\AILocate-V2.8-splits\images"
+    categories = {
+        0: "DIP_IC",
+        1: "SMT_BGA",
+        2: "SMT_Capacitor",
+        3: "SMT_Diode",
+        4: "SMT_FOD",
+        5: "SMT_IC",
+        6: "SMT_Inductor",
+        7: "SMT_LED",
+        8: "SMT_Mosfet",
+        9: "SMT_QFN",
+        10: "SMT_Resistor",
+        11: "SMT_Resistor_OCR",
+        12: "SMT_TantalumCapacitors",
+        13: "SMT_Transistor",
+    }
+
+    for sub in ['train', 'val', 'test']:
+        path = os.path.join(dir_path, sub)
+        dirlist = [os.path.join(path, i) for i in os.listdir(path)]
+        dy = YOLODataset(
+            dirlist,
+            image_dirname=r"images",
+            label_dirname=r"labels",
+            with_label=True,
+            task="obb",
+            categories=categories,
+            read_image=False
+        )
+        print(len(dy))
+        VisualizeYOLODataset(dy, save_dir=rf"E:\python_ai_dataset\obb\AILocate-V2.8-splits-vis\{sub}")()

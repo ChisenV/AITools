@@ -39,7 +39,7 @@ __all__ = [
 from AITools.base.dataset_def import IterableDataset, T_co
 from AITools.base.vision_def import IMG_FORMATS
 from AITools.core.manager import ComponentManager, get_component_manager
-from AITools.comp.functions import parse_ppocr_label, imread, imwrite, plot_box_and_text_v2
+from AITools.comp.functions import parse_ppocr_label, imread, imwrite, plot_box_and_text_v2, img2label_path
 
 DATASETS = ComponentManager("datasets")
 
@@ -1190,20 +1190,21 @@ class SeparateDataset(IterableDataset):
     def _parse_image_label(self):
         image_id = 0
         for idx, root in self._roots_map.items():
-            if self.with_image:
-                for image_name in os.listdir(root):
-                    if not image_name.endswith(tuple(IMG_FORMATS)):
-                        continue
-                    self._image_map[image_id] = image_name
-                    self._place_map[image_id] = idx
-                    if self.with_label and self.task != "cls":
-                        image_path = os.path.join(root, image_name)
-                        label_path = self.img2label_path(image_path)
-                        self._label_map[image_id] = os.path.basename(label_path) if os.path.exists(label_path) else None
-                    elif self.with_label and self.task == "cls":
-                        category_name = os.path.basename(root)
-                        self._label_map[image_id] = category_name
-                    image_id += 1
+            if not self.with_image:
+                return
+            for image_name in os.listdir(root):
+                if not image_name.endswith(tuple(IMG_FORMATS)):
+                    continue
+                self._image_map[image_id] = image_name
+                self._place_map[image_id] = idx
+                if self.with_label and self.task != "cls":
+                    image_path = os.path.join(root, image_name)
+                    label_path = self.img2label_path(image_path)
+                    self._label_map[image_id] = os.path.basename(label_path) if os.path.exists(label_path) else None
+                elif self.with_label and self.task == "cls":
+                    category_name = os.path.basename(root)
+                    self._label_map[image_id] = category_name
+                image_id += 1
 
     def __iter__(self) -> Iterator[T_co]:
         self._index = self._begin
@@ -1584,6 +1585,8 @@ def dump_yolo_dataset(
         destination: str,
         image_file_op: Union[str, Callable] = "copy",
         label_file_op: Union[str, Callable] = "copy",
+        image_dirname: str = "images",
+        label_dirname: str = "labels",
         sub_dirname: str = "",
         tqdm_enable: bool = True,
 ):
@@ -1609,11 +1612,16 @@ def dump_yolo_dataset(
     try:
         iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
         for idx, (old_image_path, old_label_path) in enumerate(iterator):
-            old_root, image_name = old_image_path.rsplit(dataset.image_path_sep, 1)
-            path_piece = [destination, image_name if sub_dirname == "" else sub_dirname]
-            new_image_path = dataset.image_path_sep.join(path_piece)
-            new_image_path = new_image_path if sub_dirname == "" else os.path.join(new_image_path, image_name)
-            new_label_path = dataset.img2label_path(new_image_path)
+            image_name = os.path.basename(old_image_path)
+            if sub_dirname == "":
+                path_piece = [destination, image_dirname, image_name]
+            else:
+                path_piece = [destination, image_dirname, sub_dirname, image_name]
+            new_image_path = os.path.join(*path_piece)
+            new_label_path = img2label_path(new_image_path, image_dirname, label_dirname)
+            if os.path.exists(new_image_path) or os.path.exists(new_label_path):
+                print("Exists:", new_image_path, new_label_path)
+                continue
             new_image_dir = os.path.dirname(new_image_path)
             os.makedirs(new_image_dir, exist_ok=True)
             new_label_dir = os.path.dirname(new_label_path)

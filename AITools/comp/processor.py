@@ -352,7 +352,8 @@ class CropImages:
             fmt: format of the output file names
         """
         self.input_dir = input_dir
-        self.output_dir = os.path.join(output_dir, "images") if deal_with_label else output_dir
+        # self.output_dir = os.path.join(output_dir, "images") if deal_with_label else output_dir
+        self.output_dir = output_dir
         self.w = w
         self.h = h
         self.suffix = suffix
