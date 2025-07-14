@@ -1612,7 +1612,7 @@ def dump_yolo_dataset(
     try:
         iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
         for idx, (old_image_path, old_label_path) in enumerate(iterator):
-            image_name = os.path.basename(old_image_path)
+            image_name = old_image_path.rsplit(dataset.image_path_sep, 1)[1]
             if sub_dirname == "":
                 path_piece = [destination, image_dirname, image_name]
             else:

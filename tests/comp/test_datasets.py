@@ -9,7 +9,7 @@ import numpy as np
 from AITools.comp.dataset import *
 from AITools.comp.dataset import VOCDataset
 from AITools.comp.functions import *
-from AITools.comp.functions import convertCOCO2YOLO
+from AITools.comp.functions import convertCOCO2YOLO, rotate_image_around_point
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
 
 abs_file = r"E:\python_ai_dataset\train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
@@ -600,13 +600,14 @@ def test_coco2yolo():
 
     # convertCOCO2YOLO(coco_json, save_dir=save_dir, use_segments=True, cls_filter=cls_filter)
 
-    src_data = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-2000\images\val"
-    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-{}\images\val"
+    subset_name = "train"
+    src_data = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-2000\images\{}"
+    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-{}\images\{}"
     size = 1280
-    CropImages(src_data, crop_dir.format(size),
-               size, size, fmt="png", deal_with_label=True, yolo_task='seg', dump_empty=False)()
+    # CropImages(src_data.format(subset_name), crop_dir.format(size, subset_name),
+    #            size, size, fmt="png", deal_with_label=True, yolo_task='seg', dump_empty=False)()
 
-    d_y = YOLODataset(crop_dir.format(size),
+    d_y = YOLODataset(crop_dir.format(size, subset_name),
                       image_dirname="images",
                       label_dirname="labels",
                       with_label=True,
@@ -614,7 +615,7 @@ def test_coco2yolo():
                       categories={0: "entity", 1: "solder"},
                       read_image=False)
 
-    VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir.format(size), "vis"))()
+    VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir.format(size, subset_name), "vis"))()
 
 
 def test_union_labels():
@@ -712,7 +713,7 @@ def test_voc2yolo():
                 print(voc, len(dy))
                 continue
             sub_dy = dy.subset(s)
-            dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=os.path.join(name, cur_dirname))
+            dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
 
         # VisualizeYOLODataset(dy, save_dir=os.path.join(voc_dir, "vis_all"))()
     # subset = ["train", "val", "test"]
@@ -727,6 +728,7 @@ def test_voc2yolo():
 
 def test_voc2yolo2():
     dir_path = r"E:\python_ai_dataset\obb\AILocate-V2.8-splits\images"
+    dir_path2 = r"E:\python_ai_dataset\obb\AILocate-V2.8.1-splits"
     categories = {
         0: "DIP_IC",
         1: "SMT_BGA",
@@ -743,18 +745,146 @@ def test_voc2yolo2():
         12: "SMT_TantalumCapacitors",
         13: "SMT_Transistor",
     }
+    categories2 = {
+        0: "DIP_IC",
+        1: "SMT_BGA",
+        2: "SMT_Capacitor",
+        3: "SMT_Diode",
+        4: "SMT_IC",
+        5: "SMT_Inductor",
+        6: "SMT_LED",
+        7: "SMT_Mosfet",
+        8: "SMT_QFN",
+        9: "SMT_Resistor",
+        10: "SMT_Resistor_OCR",
+        11: "SMT_TantalumCapacitors",
+        12: "SMT_Transistor",
+    }
+
+    def label_op(old_label_path, new_label_path):
+        with open(old_label_path, "r") as f:
+            lines = f.readlines()
+        try:
+            f = open(new_label_path, 'w', encoding='utf-8')
+            for line_num, line in enumerate(lines, 1):
+                parts = line.split()
+                if not parts:
+                    continue
+
+                class_id = int(parts[0])
+                if class_id == 4:
+                    continue
+                if class_id > 4:
+                    class_id -= 1
+                values = list(map(float, parts[1:]))
+                validate_normalized_coords(values, line_num, True)
+                values_str = ' '.join(map(str, values))
+                new_line = f"{class_id} {values_str}\n"
+                f.write(new_line)
+
+        except ValueError as e:
+            raise e
+        finally:
+            f.close()
 
     for sub in ['train', 'val', 'test']:
-        path = os.path.join(dir_path, sub)
+        # path = os.path.join(dir_path, sub)
+        # dirlist = [os.path.join(path, i) for i in os.listdir(path)]
+        # dy = YOLODataset(
+        #     dirlist,
+        #     image_dirname=r"images",
+        #     label_dirname=r"labels",
+        #     with_label=True,
+        #     task="obb",
+        #     categories=categories,
+        #     read_image=False
+        # )
+        # print(len(dy))
+        # dump_yolo_dataset(dy, dir_path2, label_file_op=label_op)
+
+        path = os.path.join(dir_path2, "images", sub)
         dirlist = [os.path.join(path, i) for i in os.listdir(path)]
-        dy = YOLODataset(
+        dy2 = YOLODataset(
             dirlist,
             image_dirname=r"images",
             label_dirname=r"labels",
             with_label=True,
             task="obb",
-            categories=categories,
+            categories=categories2,
             read_image=False
         )
-        print(len(dy))
-        VisualizeYOLODataset(dy, save_dir=rf"E:\python_ai_dataset\obb\AILocate-V2.8-splits-vis\{sub}")()
+        VisualizeYOLODataset(dy2, save_dir=rf"E:\python_ai_dataset\obb\AILocate-V2.8.1-splits-vis\{sub}")()
+
+
+categories = {
+    0: "SMT_BGA",
+    1: "SMT_Capacitor",
+    2: "SMT_Diode",
+    3: "SMT_IC",
+    4: "SMT_QFN",
+}
+def test_vis_yolo():
+    dir_path = r"E:\python_ai_dataset\obb\AILocate-V2.8.2-small-patch"
+    dst_dir  = r"E:\python_ai_dataset\obb\AILocate-V2.8.2-small-patch-split"
+    path_list = [os.path.join(dir_path, i) for i in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, i))]
+    for path in path_list:
+        # vd = VOCDataset(path,
+        #                 with_label=True,
+        #                 image_dirname="JPEGImages",
+        #                 label_dirname="Annotations",
+        #                 categories=categories,
+        #                 task='obb',)
+        #
+        # convertVOC2YOLO(vd, save_dir=os.path.join(path, "labels"))
+
+        dy = YOLODataset(
+            path,
+            image_dirname=r"JPEGImages",
+            label_dirname=r"labels",
+            with_label=True,
+            task="obb",
+            categories=categories,
+            read_image=False,
+            subject_to="image"
+        )
+        # VisualizeYOLODataset(dy2, save_dir=os.path.join(path, "vis"))()
+        subset = dy.split(ratio=[0.7, 0.2, 0.1], seed=20250709)
+        for i, (name, s) in enumerate(subset.items()):
+            sub_dy = dy.subset(s)
+            dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
+
+
+def test_yolo_img_rotate():
+    print()
+    dy = YOLODataset(
+        r"E:\python_ai_dataset\obb\AILocate-V2.8.2-small-patch-split\images\test",
+        image_dirname=r"images",
+        label_dirname=r"labels",
+        with_label=True,
+        task="obb",
+        categories=categories,
+        read_image=True
+    )
+    dst_dir = r"E:\python_ai_dataset\obb\AILocate-V2.8.2-small-patch-split\images\test_enh"
+    os.makedirs(dst_dir, exist_ok=True)
+    assert len(dy) != 0
+    for i in dy:
+        image_path, label_path, image, label = i
+        if len(label) != 1:
+            continue
+        # print(image_path, label_path, label)
+        h, w = image.shape[:2]
+        points = np.array(label[0][1:], dtype=np.float32).reshape(-1, 2)
+        points = points * np.array([w, h])
+        rr = cv2.RotatedRect(points[0], points[1], points[2])
+        center = rr.center
+        angle = rr.angle
+        filename, ext = os.path.basename(image_path).split('.', 1)
+
+        print(os.path.basename(image_path), center, angle)
+        # img = np.zeros((640,640,3), dtype=np.uint8)
+        for deg in [0, 30, 45, 60, 75]:
+            img = rotate_image_around_point(image, center, deg, (640, 640))
+            # cv2.circle(img,(272, 276), radius=2, color=(0,0,255))
+            # imshow("img", img, 0)
+            imwrite(os.path.join(dst_dir, f"{filename}_{deg}.{ext}"), img)

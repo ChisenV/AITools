@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Union, List
 
 import cv2
 import numpy as np
@@ -317,6 +317,7 @@ class VisualizeYOLODataset(BaseProcessor):
         F.imwrite(os.path.join(self.save_dir, basename), im)
 
 
+'''
 def parse_args():
     """
     Parse arguments for cropping images.
@@ -334,12 +335,13 @@ def parse_args():
                         help='suffix of the output file names')
     parser.add_argument('--format', type=str, default='png', help='format of the output file names')
     return parser.parse_args()
+'''
 
 
 @PROCESSORS.register_component
-class CropImages:
-    def __init__(self, input_dir, output_dir, w: int, h: int, suffix='"{}__{}___{}".format(basename, j, i)',
-                 fmt='png', deal_with_label=False, yolo_task='det', dump_empty=True):
+class CropImages(BaseProcessor):
+    def __init__(self, input_dir, output_dir, w: int, h: int, suffix='"{}__{}___{}".format(basename, j, i)', fmt='png',
+                 deal_with_label=False, yolo_task='det', dump_empty=True, *args, **kwargs):
         """
         Crop images in a directory and save them to another directory.
 
@@ -351,6 +353,7 @@ class CropImages:
             suffix: suffix of the output file names
             fmt: format of the output file names
         """
+        super().__init__(*args, **kwargs)
         self.input_dir = input_dir
         # self.output_dir = os.path.join(output_dir, "images") if deal_with_label else output_dir
         self.output_dir = output_dir
@@ -361,6 +364,9 @@ class CropImages:
         self.deal_with_label = deal_with_label
         self.yolo_task = yolo_task
         self.dump_empty = dump_empty
+
+    def run(self, *args, **kwargs):
+        return self()
 
     def __call__(self, strict=True):
         if not os.path.exists(self.output_dir):
@@ -535,3 +541,51 @@ class CropImages:
                     normalized = [f"{p:.6f}" for point in rel_points.tolist() for p in point]
                     new_lines.append(f"{class_id} " + " ".join(normalized))
         return new_lines
+
+
+class PixelRuler:
+    def __init__(self, step, length):
+        self.step = step
+        self.length = length
+        self.ruler = np.arange(start=0, stop=length, step=step)
+
+    def get_level(self, value):
+        return int(round(value / self.step, 0))
+
+    def get_ruler(self):
+        return self.ruler
+
+    def get_measure(self, value):
+        index = self.get_level(value)
+        if index > len(self.ruler) - 1:
+            raise ValueError("Value is overflow")
+        return self.ruler[index]
+
+    def reset(self, step, length):
+        self.step = step
+        self.length = length
+        self.ruler = np.arange(start=0, stop=length, step=step)
+
+
+class MosaicImage(BaseProcessor):
+    def __init__(self, image_dirs: Union[str, Path, List[Union[str, Path]]], **kwargs):
+        super().__init__(**kwargs)
+        self.image_dirs = image_dirs
+        self.image_paths = F.get_img_files(image_dirs)
+        self.ruler = PixelRuler(320, 50000)
+        self.image_size = []
+
+    def run(self, *args, **kwargs) -> Any:
+        for img_path in self.image_paths:
+            img = F.imread(img_path)
+            if img is None:
+                continue
+            imh, imw = img.shape[:2]
+            self.image_size.append([imw, imh])
+            to_size = max(self.ruler.get_measure(imh), self.ruler.get_measure(imw))
+            src2dst, dst2src = F.compute_affine_matrix((imw, imh), (to_size, to_size))
+            img = cv2.warpAffine(img, src2dst, (to_size, to_size), flags=cv2.INTER_LINEAR,
+                                 borderMode=cv2.BORDER_CONSTANT, borderValue=(114, 114, 114))
+
+    def __call__(self, *args, **kwargs):
+        pass

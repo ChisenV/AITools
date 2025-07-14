@@ -1,3 +1,4 @@
+import glob
 import os
 import shutil
 from collections import defaultdict
@@ -31,6 +32,8 @@ __all__ = [
     "union_labels",
     "convertVOC2YOLO",
     "convertCOCO2YOLO",
+    "segment2box",
+    "get_img_files"
 ]
 
 from .parser import XMLParser, JSONParser
@@ -41,7 +44,8 @@ from AITools.base.vision_def import (
     DataItem,
     ImageData,
     ImageFormat,
-    OCRLabel
+    OCRLabel,
+    IMG_FORMATS,
 )
 from AITools.core.manager import ComponentManager
 
@@ -597,6 +601,8 @@ def convertVOC2YOLO(voc_dataset, save_dir, label_postfix=".txt", empty_label=Tru
             with open(os.path.join(save_dir, file_name), "w") as f:
                 for i, obj in enumerate(objs):
                     cla_id = voc_dataset.categories(obj['name'])
+                    if cla_id == None:
+                        continue
                     if voc_dataset.task == "det":
                         bbox = obj['bndbox']
                         x, y, w, h = bbox['xmin'], bbox['ymin'], bbox['xmax'] - bbox['xmin'], bbox['ymax'] - bbox['ymin']
@@ -810,3 +816,105 @@ def convertCOCO2YOLO(json_file, save_dir, use_segments=False, cls91to80=False, c
             for i in range(len(bboxes)):
                 line = (*(segments[i] if use_segments else bboxes[i]),)  # cls, box or segments
                 file.write(("%g " * len(line)).rstrip() % line + "\n")
+
+
+@FUNCTIONS.register_component
+def segment2box(segment: np.ndarray, width=640, height=640):
+    """
+    Convert 1 segment label to 1 box label, applying inside-image constraint, i.e. (xy1, xy2, ...) to (xyxy).
+
+    Args:
+        segment (np.ndarray): The segment label.
+        width (int): The width of the image.
+        height (int): The height of the image.
+
+    Returns:
+        (np.ndarray): The minimum and maximum x and y values of the segment.
+    """
+    x, y = segment.T  # segment xy
+    # any 3 out of 4 sides are outside the image, clip coordinates first, https://github.com/ultralytics/ultralytics/pull/18294
+    if np.array([x.min() < 0, y.min() < 0, x.max() > width, y.max() > height]).sum() >= 3:
+        x = x.clip(0, width)
+        y = y.clip(0, height)
+    inside = (x >= 0) & (y >= 0) & (x <= width) & (y <= height)
+    x = x[inside]
+    y = y[inside]
+    return (
+        np.array([x.min(), y.min(), x.max(), y.max()], dtype=segment.dtype)
+        if any(x)
+        else np.zeros(4, dtype=segment.dtype)
+    )  # xyxy
+
+
+@FUNCTIONS.register_component
+def get_img_files(img_path, log_prefix=''):
+    """
+    Read image files from the specified path.
+
+    Args:
+        img_path (str | List[str]): Path or list of paths to image directories or files.
+        log_prefix (str, optional): Prefix for logging errors. Defaults to ''.
+
+    Returns:
+        (List[str]): List of image file paths.
+
+    Raises:
+        FileNotFoundError: If no images are found or the path doesn't exist.
+    """
+    try:
+        f = []  # image files
+        for p in img_path if isinstance(img_path, list) else [img_path]:
+            p = Path(p)  # os-agnostic
+            if p.is_dir():  # dir
+                f += glob.glob(str(p / "**" / "*.*"), recursive=True)
+                # F = list(p.rglob('*.*'))  # pathlib
+            elif p.is_file():  # file
+                with open(p, encoding="utf-8") as t:
+                    t = t.read().strip().splitlines()
+                    parent = str(p.parent) + os.sep
+                    f += [x.replace("./", parent) if x.startswith("./") else x for x in t]  # local to global path
+                    # F += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
+            else:
+                raise FileNotFoundError(f"{log_prefix}{p} does not exist")
+        im_files = sorted(x.replace("/", os.sep) for x in f if x.split(".")[-1].lower() in IMG_FORMATS)
+        # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
+        assert im_files, f"{log_prefix}No images found in {img_path}. {IMG_FORMATS}"
+    except Exception as e:
+        raise FileNotFoundError(f"{log_prefix}Error loading data from {img_path}\n") from e
+    return im_files
+
+
+@FUNCTIONS.register_component
+def rotate_image_around_point(image, center, angle_deg, imgsz):
+    """
+    以指定点为中心旋转图像，保持图像尺寸不变
+
+    参数:
+        image: 输入图像 (numpy数组)
+        center: 旋转中心点坐标 (x, y)
+        angle_deg: 旋转角度(度)，正值表示逆时针旋转
+
+    返回:
+        rotated_image: 旋转后的图像
+    """
+    # 获取图像尺寸
+    (h, w) = image.shape[:2]
+
+    # 计算旋转矩阵
+    R = np.eye(3, dtype=np.float32)
+    R[:2] = cv2.getRotationMatrix2D(center, angle_deg, 0.8)
+    # 平移 缩放
+    A = np.eye(3, dtype=np.float32)
+    A[:2] = compute_affine_matrix((w, h), imgsz)[0]
+    rotation_matrix = A @ R
+
+    # 执行旋转（指定输出尺寸为原始尺寸）
+    rotated_image = cv2.warpAffine(
+        image,
+        rotation_matrix[:2],
+        imgsz,
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_CONSTANT,
+        borderValue=(0, 0, 0))  # 填充黑边
+
+    return rotated_image
