@@ -592,30 +592,38 @@ def test_convertVOC2yolo():
 
 
 def test_coco2yolo():
-    coco_json = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\annotations\annotations.json"
-    save_dir = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\annotations"
+    coco_json = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.0\raw\fod_blackgreen_anno\annotations\annotations.json"
+    save_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.0\raw\fod_real_anno"
 
     def cls_filter(cls):
-        return cls >= 2
+        label_map = {
+            0: 0,     # elem
+            1: 1,     # solder
+            2: None,  # paster
+            3: None,  # device
+            4: None,  # solder ball
+            5: 2      # sticker
+        }
+        return label_map[cls]
 
     # convertCOCO2YOLO(coco_json, save_dir=save_dir, use_segments=True, cls_filter=cls_filter)
 
-    subset_name = "train"
-    src_data = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-2000\images\{}"
-    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-{}\images\{}"
-    size = 1280
+    # subset_name = "train"
+    # src_data = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-2000\images\{}"
+    # crop_dir = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-{}\images\{}"
+    # size = 1280
     # CropImages(src_data.format(subset_name), crop_dir.format(size, subset_name),
     #            size, size, fmt="png", deal_with_label=True, yolo_task='seg', dump_empty=False)()
 
-    d_y = YOLODataset(crop_dir.format(size, subset_name),
+    d_y = YOLODataset(save_dir,
                       image_dirname="images",
                       label_dirname="labels",
                       with_label=True,
                       task="seg",
-                      categories={0: "entity", 1: "solder"},
+                      categories={0: "entity", 1: "solder", 2: "sticker"},
                       read_image=False)
 
-    VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir.format(size, subset_name), "vis"))()
+    VisualizeYOLODataset(d_y, save_dir=os.path.join(save_dir, "vis"))()
 
 
 def test_union_labels():
@@ -715,7 +723,7 @@ def test_voc2yolo():
             sub_dy = dy.subset(s)
             dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
 
-        # VisualizeYOLODataset(dy, save_dir=os.path.join(voc_dir, "vis_all"))()
+        VisualizeYOLODataset(dy, save_dir=os.path.join(voc_dir, "vis_all"))()
     # subset = ["train", "val", "test"]
     # subset_dir = [os.path.join(dst_dir, i) for i in subset]
     # subset_dirnames = os.listdir(subset_dir[0])
@@ -817,41 +825,41 @@ def test_voc2yolo2():
 
 
 categories = {
-    0: "SMT_BGA",
-    1: "SMT_Capacitor",
-    2: "SMT_Diode",
-    3: "SMT_IC",
-    4: "SMT_QFN",
+    0: "SMT_IC",#"SMT_BGA",
+    # 1: "SMT_Capacitor",
+    # 2: "SMT_Diode",
+    # 3: "SMT_IC",
+    # 4: "SMT_QFN",
 }
 def test_vis_yolo():
-    dir_path = r"E:\python_ai_dataset\obb\AILocate-V2.8.2-small-patch"
-    dst_dir  = r"E:\python_ai_dataset\obb\AILocate-V2.8.2-small-patch-split"
+    dir_path = r"E:\python_ai_dataset\obb\3D-SMT_IC-std\3D-SMT_IC"
+    dst_dir  = r"E:\python_ai_dataset\obb\3D-SMT_IC-std\3D-SMT_IC-split"
     path_list = [os.path.join(dir_path, i) for i in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, i))]
-    for path in path_list:
-        # vd = VOCDataset(path,
-        #                 with_label=True,
-        #                 image_dirname="JPEGImages",
-        #                 label_dirname="Annotations",
-        #                 categories=categories,
-        #                 task='obb',)
-        #
-        # convertVOC2YOLO(vd, save_dir=os.path.join(path, "labels"))
+    # for path in path_list:
+    vd = VOCDataset(dir_path,
+                    with_label=True,
+                    image_dirname="JPEGImages",
+                    label_dirname="Annotations",
+                    categories=categories,
+                    task='obb',)
 
-        dy = YOLODataset(
-            path,
-            image_dirname=r"JPEGImages",
-            label_dirname=r"labels",
-            with_label=True,
-            task="obb",
-            categories=categories,
-            read_image=False,
-            subject_to="image"
-        )
-        # VisualizeYOLODataset(dy2, save_dir=os.path.join(path, "vis"))()
-        subset = dy.split(ratio=[0.7, 0.2, 0.1], seed=20250709)
-        for i, (name, s) in enumerate(subset.items()):
-            sub_dy = dy.subset(s)
-            dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
+    convertVOC2YOLO(vd, save_dir=os.path.join(dir_path, "labels"))
+
+    dy = YOLODataset(
+        dir_path,
+        image_dirname=r"JPEGImages",
+        label_dirname=r"labels",
+        with_label=True,
+        task="obb",
+        categories=categories,
+        read_image=False,
+        subject_to="image"
+    )
+    # VisualizeYOLODataset(dy2, save_dir=os.path.join(path, "vis"))()
+    subset = dy.split(ratio=[0.75, 0.25], seed=20250715)
+    for i, (name, s) in enumerate(subset.items()):
+        sub_dy = dy.subset(s)
+        dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
 
 
 def test_yolo_img_rotate():

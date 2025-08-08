@@ -28,6 +28,12 @@ class Parser(ABC):
         """Dump data to file"""
         raise NotImplementedError
 
+    def loads(self):
+        pass
+
+    def dumps(self):
+        pass
+
 
 # --------------------- YAML plugin implement ---------------------
 @PARSERS.register_component

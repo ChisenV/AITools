@@ -793,7 +793,8 @@ def convertCOCO2YOLO(json_file, save_dir, use_segments=False, cls91to80=False, c
             box[box > 1] = 1.0  # if x > 1 and y > 1
 
             cls = coco80[ann["category_id"] - 1] if cls91to80 else ann["category_id"] - 1  # class
-            if cls_filter is not None and cls_filter(cls):
+            cls = cls_filter(cls) if cls_filter else cls
+            if cls is None:
                 continue
             box = [cls] + box.tolist()
             if box not in bboxes:
