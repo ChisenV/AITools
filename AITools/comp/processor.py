@@ -341,7 +341,7 @@ def parse_args():
 @PROCESSORS.register_component
 class CropImages(BaseProcessor):
     def __init__(self, input_dir, output_dir, w: int, h: int, suffix='"{}__{}___{}".format(basename, j, i)', fmt='png',
-                 deal_with_label=False, yolo_task='det', dump_empty=True, *args, **kwargs):
+                 cope_with_label=False, yolo_task='det', dump_empty=True, *args, **kwargs):
         """
         Crop images in a directory and save them to another directory.
 
@@ -352,6 +352,9 @@ class CropImages(BaseProcessor):
             h: height of the crop area
             suffix: suffix of the output file names
             fmt: format of the output file names
+            cope_with_label: whether to deal with labels
+            yolo_task: yolo task type
+            dump_empty: whether to dump empty label images
         """
         super().__init__(*args, **kwargs)
         self.input_dir = input_dir
@@ -361,7 +364,7 @@ class CropImages(BaseProcessor):
         self.h = h
         self.suffix = suffix
         self.format = fmt
-        self.deal_with_label = deal_with_label
+        self.cope_with_label = cope_with_label
         self.yolo_task = yolo_task
         self.dump_empty = dump_empty
 
@@ -390,16 +393,27 @@ class CropImages(BaseProcessor):
                 else:
                     _h = image.shape[0] if image.shape[0] < _h else _h
                     _w = image.shape[1] if image.shape[1] < _w else _w
-            n = [(image.shape[0] + _h - 1) // _h, (image.shape[1] + _w - 1) // _w]
-            s = ((image.shape[0] - _h) // (n[0] - 1) if n[0] > 1 else _h,
-                 (image.shape[1] - _w) // (n[1] - 1) if n[1] > 1 else _w)
+            n = [0, 0]
+            s = [0, 0]
+            if (image.shape[0] % _h) / _h > 0.1:
+                n[0] = (image.shape[0] + _h - 1) // _h
+                s[0] = (image.shape[0] - _h) // (n[0] - 1) if n[0] > 1 else _h
+            else:
+                n[0] = image.shape[0] // _h
+                s[0] = _h
+            if (image.shape[1] % _w) / _w > 0.1:
+                n[1] = (image.shape[1] + _w - 1) // _w
+                s[1] = (image.shape[1] - _w) // (n[1] - 1) if n[1] > 1 else _w
+            else:
+                n[1] = image.shape[1] // _w
+                s[1] = _w
             for r in range(0, n[0]):
                 for c in range(0, n[1]):
                     i, j = r * s[0], c * s[1]
                     # Mutil-language friendly imwrite
                     crop_img_path = os.path.join(self.output_dir, str(eval(self.suffix)) + f".{self.format}")
                     write = True
-                    if self.deal_with_label:
+                    if self.cope_with_label:
                         write = self.deal_with_yolo_labels(image_path, crop_img_path, image.shape[:2],
                                                            (j, i, _w, _h), self.dump_empty)
                     if write or self.dump_empty:
@@ -452,7 +466,7 @@ class CropImages(BaseProcessor):
                 with open(new_label_path, 'w', encoding='utf-8') as f:
                     f.write("\n".join(new_lines))
 
-        return not new_lines == [] # True: not empty, False: empty
+        return not new_lines == []  # True: not empty, False: empty
 
     def _process_det(self, coords, orig_w, orig_h, x, y, w, h):
         """处理目标检测标签

@@ -919,3 +919,33 @@ def rotate_image_around_point(image, center, angle_deg, imgsz):
         borderValue=(0, 0, 0))  # 填充黑边
 
     return rotated_image
+
+
+def generate_yolo_empty_labels(images_dir, labels_dir, pbar: tqdm = None):
+    """
+    Generate YOLO empty labels.
+
+    Args:
+        images_dir (str): Path to the image dataset directory.
+        labels_dir (str): Path to the output YOLO labels directory.
+        pbar (tqdm): Progress bar.
+    """
+
+    if not os.path.exists(labels_dir):
+        os.makedirs(labels_dir)
+    count = 0
+    for basename in os.listdir(images_dir):
+        img_path = os.path.join(images_dir, basename)
+        if os.path.isfile(img_path) and basename.rsplit(
+                '.', 1)[-1].lower() in IMG_FORMATS:
+            lab_path = img2label_paths([img_path],
+                                       os.path.basename(images_dir),
+                                       os.path.basename(labels_dir))[0]
+            if not os.path.exists(lab_path):
+                with open(lab_path, 'w') as f:
+                    f.write('')
+                count += 1
+                if pbar:
+                    pbar.update()
+                    pbar.set_postfix_str(f"Captured yolo empty labels: {os.path.basename(lab_path)}")
+    return count
