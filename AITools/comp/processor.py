@@ -449,7 +449,7 @@ class CropImages(BaseProcessor):
                 if processed:
                     new_lines.append(f"{class_id} {' '.join(processed)}")
         elif self.yolo_task == 'seg':
-            processed = self._process_seg(orig_lines, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h)
+            processed = self._process_seg_v2(orig_lines, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h)
             new_lines = processed if processed else []
 
         new_label_path = F.img2label_path(crop_img_path)
@@ -554,6 +554,33 @@ class CropImages(BaseProcessor):
                     rel_points = contour.squeeze().astype(np.float32) / [crop_w, crop_h]
                     normalized = [f"{p:.6f}" for point in rel_points.tolist() for p in point]
                     new_lines.append(f"{class_id} " + " ".join(normalized))
+        return new_lines
+
+    def _process_seg_v2(self, orig_lines, orig_w, orig_h, crop_x, crop_y, crop_w, crop_h):
+        """处理分割多边形标签, 将位于shape=[w，h]内的多边形轮廓提取出来"""
+        new_lines = []
+        class_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
+        for line in orig_lines:
+            parts = line.split()
+            class_id = int(parts[0])
+            coords = list(map(float, parts[1:]))
+
+            if len(coords) % 2 != 0:
+                raise ValueError("The number of coordinates must be an even number.")
+
+            abs_points = np.array(coords, dtype=np.float32).reshape(-1, 2) * [orig_w, orig_h]
+            cv2.fillPoly(class_mask, [np.array(abs_points, dtype=np.int32)], color=255)
+            crop_mask = class_mask[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+            # 寻找新轮廓（使用最外层轮廓）
+            contours, _ = cv2.findContours(crop_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
+            for contour in contours:
+                if len(contour) >= 3:  # 有效多边形至少需要3个点
+                    # 转换为相对坐标
+                    rel_points = contour.squeeze().astype(np.float32) / [crop_w, crop_h]
+                    normalized = [f"{p:.6f}" for point in rel_points.tolist() for p in point]
+                    new_lines.append(f"{class_id} " + " ".join(normalized))
+            class_mask[:, :] = 0
+
         return new_lines
 
 

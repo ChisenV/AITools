@@ -1,5 +1,6 @@
 import os.path
 import shutil
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -386,8 +387,9 @@ def place_image_on_canvas(
 
 
 if __name__ == "__main__":
-    data_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.3\cooked\fod_real_small_roi_anno\fod_baineng3d\flying"
-    save_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.3\cooked\fod_real_small_roi_anno\fod_baineng3d\flying_canvas"
+    data_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.4\cooked\fod_baineng3d"
+    save_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.4\crop\fod_baineng3d"
+    basename = os.path.basename(save_dir)
     save_image_dir = os.path.join(save_dir, "images")
     save_label_dir = os.path.join(save_dir, "labels")
     os.makedirs(save_image_dir, exist_ok=True)
@@ -479,5 +481,14 @@ if __name__ == "__main__":
                       task="seg",
                       categories=cate,
                       read_image=False)
+    for idx, i in enumerate(ds2):
+        im_path, la_path = i
+        im_dir_path = os.path.dirname(im_path)
+        la_dir_path = os.path.dirname(la_path)
+        new_im_dir = os.path.join(im_dir_path, f"{basename}_" + os.path.basename(im_path))
+        new_la_dir = os.path.join(la_dir_path, f"{basename}_" + os.path.basename(la_path))
+        os.rename(im_path, new_im_dir)
+        os.rename(la_path, new_la_dir)
+        ds2[idx] = Path(new_im_dir), Path(new_la_dir)
 
     VisualizeYOLODataset(ds2, save_dir=os.path.join(save_dir, "vis"))()

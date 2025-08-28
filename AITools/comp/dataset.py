@@ -1269,7 +1269,7 @@ class SeparateDataset(IterableDataset):
 
         root_idx = None
         for idx, r_path in self._roots_map.items():
-            if r_path == image_dir:
+            if os.path.abspath(r_path) == os.path.abspath(image_dir):
                 root_idx = idx
                 break
         if root_idx is None:
