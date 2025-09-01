@@ -762,7 +762,7 @@ def convertCOCO2YOLO(json_file, save_dir, use_segments=False, cls91to80=False, c
 
     # Import json
     fn = Path(save_dir) / "labels"   # folder name
-    fn.mkdir(exist_ok=True)
+    os.makedirs(fn, exist_ok=True)
     data = JSONParser().load(json_file)
 
     # Create image dict

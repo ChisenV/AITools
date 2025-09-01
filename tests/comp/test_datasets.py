@@ -6,10 +6,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from AITools import IMG_FORMATS
 from AITools.comp.dataset import *
 from AITools.comp.dataset import VOCDataset
 from AITools.comp.functions import *
-from AITools.comp.functions import convertCOCO2YOLO, rotate_image_around_point
+from AITools.comp.functions import convertCOCO2YOLO, rotate_image_around_point, generate_yolo_empty_labels
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
 
 abs_file = r"E:\python_ai_dataset\train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
@@ -591,39 +592,103 @@ def test_convertVOC2yolo():
     VisualizeYOLODataset(d_y, save_dir=os.path.join(vis_yolo, "vis"))()
 
 
-def test_coco2yolo():
-    coco_json = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.0\raw\fod_blackgreen_anno\annotations\annotations.json"
-    save_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.0\raw\fod_real_anno"
+cate = {
+    0: "entity",
+    1: "solder",
+    2: "paster",
+    3: "device",
+    4: "solderBall",
+    5: "sticker",
+    6: "footprint",
+}
 
+
+def test_coco2yolo():
+    FOD_dir = ["异物-AIDIAN", "异物-BAINENG2D", "异物-BAINENG2D-V2", "异物-BAINENG3D"]
+    tto_dir = ["fod_aidian", "fod_baineng2d_01", "fod_baineng2d_02", "fod_baineng3d"]
+    dir_idx = 3
+    src_dir  = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\raw\异物4.5.2\{FOD_dir[dir_idx]}\pick"
+    save_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked\{tto_dir[dir_idx]}"
+    image_key = tto_dir[dir_idx]
+    coco_json = rf"{src_dir}\annotations\annotations.json"
     def cls_filter(cls):
         label_map = {
             0: 0,     # elem
             1: 1,     # solder
             2: None,  # paster
             3: None,  # device
-            4: None,  # solder ball
-            5: 2      # sticker
+            4: 1,     # solder ball, if 是 异物\异物-AIDIAN 等文件夹下用转为1
+            5: None,  # sticker
+            6: 1,     # footprint
         }
         return label_map[cls]
 
-    # convertCOCO2YOLO(coco_json, save_dir=save_dir, use_segments=True, cls_filter=cls_filter)
+    convertCOCO2YOLO(
+        coco_json,
+        save_dir=save_dir,
+        use_segments=True,
+        cls_filter=cls_filter
+    )
 
-    # subset_name = "train"
-    # src_data = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-2000\images\{}"
-    # crop_dir = r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.3-2label-{}\images\{}"
-    # size = 1280
-    # CropImages(src_data.format(subset_name), crop_dir.format(size, subset_name),
-    #            size, size, fmt="png", deal_with_label=True, yolo_task='seg', dump_empty=False)()
+    if not os.path.exists(os.path.join(save_dir, "images")):
+        shutil.copytree(rf"{src_dir}\images", os.path.join(save_dir, "images"))
+    generate_yolo_empty_labels(Path(save_dir) / "images", Path(save_dir) / "labels")
 
     d_y = YOLODataset(save_dir,
                       image_dirname="images",
                       label_dirname="labels",
                       with_label=True,
                       task="seg",
-                      categories={0: "entity", 1: "solder", 2: "sticker"},
+                      categories=cate,
                       read_image=False)
+    print(d_y.directories)
+    if image_key is not None:
+        for idx, i in enumerate(d_y):
+            im_path, la_path = i
+            im_dir_path = os.path.dirname(im_path)
+            la_dir_path = os.path.dirname(la_path)
+            new_im_dir = os.path.join(im_dir_path, f"{image_key}_" + os.path.basename(im_path))
+            new_la_dir = os.path.join(la_dir_path, f"{image_key}_" + os.path.basename(la_path))
+            # new_im_dir = os.path.join(im_dir_path, os.path.basename(im_path).replace(f"{image_key}_", ""))
+            os.rename(im_path, new_im_dir)
+            os.rename(la_path, new_la_dir)
+            d_y[idx] = Path(new_im_dir), Path(new_la_dir)
 
     VisualizeYOLODataset(d_y, save_dir=os.path.join(save_dir, "vis"))()
+
+
+def test_crop_image():
+    size = 1280
+    from_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked\fod_xz_m\images"
+    crop_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\crop\fod_xz_m"
+    # crop_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.4\cooked\fod_baineng2d_02"
+    CropImages(from_dir, crop_dir + "\images", 2048, 1500, fmt="png",
+               cope_with_label=True, yolo_task='seg', dump_empty=False)()
+
+    d_y = YOLODataset(crop_dir,
+                      image_dirname="images",
+                      label_dirname="labels",
+                      with_label=True,
+                      task="seg",
+                      categories=cate,
+                      read_image=False)
+
+    VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir, "vis"))()
+
+
+def test_copy_image():
+    src_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\crop"
+    dst_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train"
+    dir_list = [i for i in os.listdir(src_dir) if os.path.isdir(os.path.join(src_dir, i))]
+    for d in dir_list:
+        shutil.copytree(os.path.join(src_dir, d, "images"), os.path.join(dst_dir, "images"), dirs_exist_ok=True)
+        shutil.copytree(os.path.join(src_dir, d, "labels"), os.path.join(dst_dir, "labels"), dirs_exist_ok=True)
+        print(os.path.join(src_dir, d, "images"))
+        for i in os.listdir(os.path.join(src_dir, d, "images")):
+            if not i.endswith(tuple(IMG_FORMATS)):
+                continue
+            if not os.path.exists(os.path.join(dst_dir, "images", i)):
+                print(os.path.join(dst_dir, "images", i))
 
 
 def test_union_labels():
@@ -646,7 +711,7 @@ def test_union_labels():
 
 
 def test_rename_yoloDataset():
-    dir_data = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org\images_crop_2000"
+    dir_data = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.3\cooked\alllabel\fod_real_small_roi_anno\fod_aidian\flying_canvas"
     dy = YOLODataset(dir_data,
                      with_label=True,
                      task="seg",
@@ -656,21 +721,92 @@ def test_rename_yoloDataset():
         im_path, la_path = i
         im_dir_path = os.path.dirname(im_path)
         la_dir_path = os.path.dirname(la_path)
-        os.rename(im_path, os.path.join(im_dir_path, "fod-20250527_" + os.path.basename(im_path)))
-        os.rename(la_path, os.path.join(la_dir_path, "fod-20250527_" + os.path.basename(la_path)))
+        os.rename(im_path, os.path.join(im_dir_path, "fod_aidian_flying_" + os.path.basename(im_path)))
+        os.rename(la_path, os.path.join(la_dir_path, "fod_aidian_flying_" + os.path.basename(la_path)))
+
+def test_filter_label_rename_yoloDataset():
+    cate = {
+        0: "entity",
+        1: "solder",
+        2: "paster",
+        3: "device",
+        4: "solderBall",
+        5: "sticker"
+    }
+    def cls_filter(cls):
+        label_map = {
+            0: 0,     # elem
+            1: 1,     # solder
+            2: None,  # paster
+            3: None,  # device
+            4: None,  # solder ball
+            5: None,  # sticker
+        }
+        return label_map[cls]
+    patch = "fod_baineng3d_flying_canvas"
+    dir_data = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.3\cooked\alllabel\fod_real_small_roi_anno\fod_baineng3d\flying_canvas"
+    dst_data = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.3\cooked\alllabel\fod_real_small_roi_anno\fod_baineng3d\flying_canvas_2label"
+    dy = YOLODataset(dir_data,
+                     with_label=True,
+                     task="seg",
+                     categories=cate)
+
+    def label_op(old_label_path, new_label_path):
+        with open(old_label_path, "r") as f:
+            lines = f.readlines()
+        try:
+            f = open(new_label_path, 'w', encoding='utf-8')
+            for line_num, line in enumerate(lines, 1):
+                parts = line.split()
+                if not parts:
+                    continue
+
+                class_id = int(parts[0])
+                class_id = cls_filter(class_id)
+                if class_id is None:
+                    continue
+                values = list(map(float, parts[1:]))
+                validate_normalized_coords(values, line_num, True)
+                values_str = ' '.join(map(str, values))
+                new_line = f"{class_id} {values_str}\n"
+                f.write(new_line)
+
+        except ValueError as e:
+            raise e
+        finally:
+            f.close()
+
+    dump_yolo_dataset(dy, dst_data, label_file_op=label_op)
+
+    dy2 = YOLODataset(dst_data,
+                      with_label=True,
+                      task="seg",
+                      categories={0: "entity", 1: "solder"})
+    for i in dy2:
+        im_path, la_path = i
+        im_dir_path = os.path.dirname(im_path)
+        la_dir_path = os.path.dirname(la_path)
+        os.rename(im_path, os.path.join(im_dir_path, f"{patch}_" + os.path.basename(im_path)))
+        os.rename(la_path, os.path.join(la_dir_path, f"{patch}_" + os.path.basename(la_path)))
+
+    dy2 = YOLODataset(dst_data,
+                      with_label=True,
+                      task="seg",
+                      categories={0: "entity", 1: "solder"})
+    VisualizeYOLODataset(dy2, save_dir=os.path.join(dst_data, "vis"))()
 
 
 def test_splitYOLODataset():
-    dir_data = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org\images_crop_2000"
-    dst_dir = r"E:\python_ai_dataset\foreign-object-detect\2025\fod-20250527\fov-only-side-org\images_crop_2000_split"
+    dir_data = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train"
+    dst_data = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train_split"
     dy = YOLODataset(dir_data,
                      with_label=True,
                      task="seg",
                      categories={0: "entity", 1: "solder"})
-    subset = dy.split(ratio=[0.7, 0.2, 0.1], seed=20250609)
+    subset = dy.split(ratio=[0.7, 0.2, 0.1], seed=20250829)
     for i, (name, s) in enumerate(subset.items()):
         sub_dy = dy.subset(s)
-        dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
+        dump_yolo_dataset(sub_dy, destination=dst_data, sub_dirname=name)
 
 
 def test_voc2yolo():

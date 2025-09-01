@@ -386,9 +386,7 @@ def place_image_on_canvas(
         cv2.putText(canvas, name, (x, y + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
 
-if __name__ == "__main__":
-    data_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.4\cooked\fod_baineng3d"
-    save_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.4\crop\fod_baineng3d"
+def do(data_dir, save_dir):
     basename = os.path.basename(save_dir)
     save_image_dir = os.path.join(save_dir, "images")
     save_label_dir = os.path.join(save_dir, "labels")
@@ -402,7 +400,8 @@ if __name__ == "__main__":
         2: "paster",
         3: "device",
         4: "solderBall",
-        5: "sticker"
+        5: "sticker",
+        6: "footprint",
     }
     dsy = YOLODataset(data_dir,
                       image_dirname="images",
@@ -492,3 +491,12 @@ if __name__ == "__main__":
         ds2[idx] = Path(new_im_dir), Path(new_la_dir)
 
     VisualizeYOLODataset(ds2, save_dir=os.path.join(save_dir, "vis"))()
+
+
+if __name__ == "__main__":
+    src_top_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked"
+    dirlist = ["fod_aidian", "fod_baineng2d_01", "fod_baineng2d_02", "fod_baineng3d"]
+    for i in dirlist:
+        data_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked\{i}"
+        save_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\crop\{i}"
+        do(data_dir, save_dir)
