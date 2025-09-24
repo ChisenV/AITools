@@ -55,6 +55,8 @@ class WarpAffineNorm2NCHW(BasePreprocessor):
     def run(self, im: np.ndarray, *args, **kwargs):
         ih, iw, ic = im.shape
         N, C, H, W = self.model_input.shape
+        if ic > C:
+            im = im[:, :, :3]
         if ic != C:
             raise ValueError(
                 f"Input image channel mismatch. Expected {C} channels, got {ic} channels."

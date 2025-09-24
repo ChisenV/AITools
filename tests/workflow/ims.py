@@ -152,7 +152,10 @@ def get_resize_transform(original_size, target_sizes=None):
     max_side = max(orig_w, orig_h)
 
     # 选择合适的目标尺寸：大于等于原始最大边且最接近的尺寸
-    target_size = min([size for size in target_sizes if size - 160 < max_side <= size + 160], default=max(target_sizes))
+    if max_side <= target_sizes[0] - 160:
+        target_size = target_sizes[0]
+    else:
+        target_size = min([size for size in target_sizes if size - 160 < max_side <= size + 160], default=max(target_sizes))
 
     transform_matrix, _ = compute_affine_matrix((orig_w, orig_h), (target_size, target_size))
     return target_size, transform_matrix
@@ -495,8 +498,10 @@ def do(data_dir, save_dir):
 
 if __name__ == "__main__":
     src_top_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked"
-    dirlist = ["fod_aidian", "fod_baineng2d_01", "fod_baineng2d_02", "fod_baineng3d"]
-    for i in dirlist:
-        data_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked\{i}"
-        save_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\crop\{i}"
+    dirlist = [
+        # "fod_aidian", "fod_baineng2d_01", "fod_baineng2d_02",
+        "fod_baineng3d"]
+    for d in dirlist:
+        data_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked\{d}"
+        save_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\crop\{d}"
         do(data_dir, save_dir)

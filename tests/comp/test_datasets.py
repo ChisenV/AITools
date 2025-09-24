@@ -10,7 +10,7 @@ from AITools import IMG_FORMATS
 from AITools.comp.dataset import *
 from AITools.comp.dataset import VOCDataset
 from AITools.comp.functions import *
-from AITools.comp.functions import convertCOCO2YOLO, rotate_image_around_point, generate_yolo_empty_labels
+from AITools.comp.functions import convertCOCO2YOLO, rotate_image_around_point, generate_yolo_empty_labels, date_utils
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
 
 abs_file = r"E:\python_ai_dataset\train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
@@ -724,6 +724,16 @@ def test_rename_yoloDataset():
         os.rename(im_path, os.path.join(im_dir_path, "fod_aidian_flying_" + os.path.basename(im_path)))
         os.rename(la_path, os.path.join(la_dir_path, "fod_aidian_flying_" + os.path.basename(la_path)))
 
+
+def test_day():
+    print()
+    # 示例1：计算相差天数
+    print(date_utils("2000", end_date="2025-09-03"))
+
+    # 示例2：计算经过 n 天后的日期
+    print(date_utils("2000", days=10000))
+
+
 def test_filter_label_rename_yoloDataset():
     cate = {
         0: "entity",
@@ -797,13 +807,13 @@ def test_filter_label_rename_yoloDataset():
 
 
 def test_splitYOLODataset():
-    dir_data = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train"
-    dst_data = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train_split"
+    dir_data = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train_V4.5.2"
+    dst_data = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train_split_V4.5.3"
     dy = YOLODataset(dir_data,
                      with_label=True,
                      task="seg",
                      categories={0: "entity", 1: "solder"})
-    subset = dy.split(ratio=[0.7, 0.2, 0.1], seed=20250829)
+    subset = dy.split(ratio=[0.72, 0.18, 0.1], seed=20250902)
     for i, (name, s) in enumerate(subset.items()):
         sub_dy = dy.subset(s)
         dump_yolo_dataset(sub_dy, destination=dst_data, sub_dirname=name)

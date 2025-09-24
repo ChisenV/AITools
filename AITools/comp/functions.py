@@ -4,6 +4,7 @@ import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Union
+from datetime import datetime, timedelta
 
 import cv2
 import numpy as np
@@ -33,7 +34,8 @@ __all__ = [
     "convertVOC2YOLO",
     "convertCOCO2YOLO",
     "segment2box",
-    "get_img_files"
+    "get_img_files",
+    "date_utils"
 ]
 
 from .parser import XMLParser, JSONParser
@@ -48,7 +50,6 @@ from AITools.base.vision_def import (
     IMG_FORMATS,
 )
 from AITools.core.manager import ComponentManager
-
 
 FUNCTIONS = ComponentManager("functions")
 
@@ -210,10 +211,10 @@ def yolo_to_absolute(bbox: BoundingBox, width: int, height: int):
     x, y, w, h = bbox.coords
     return BoundingBox(
         coords=[
-            (x - w/2) * width,   # x_min
-            (y - h/2) * height,  # y_min
-            (x + w/2) * width,   # x_max
-            (y + h/2) * height   # y_max
+            (x - w / 2) * width,  # x_min
+            (y - h / 2) * height,  # y_min
+            (x + w / 2) * width,  # x_max
+            (y + h / 2) * height  # y_max
         ],
         format=BoxFormat.XYXY,
         normalized=False
@@ -949,3 +950,28 @@ def generate_yolo_empty_labels(images_dir, labels_dir, pbar: tqdm = None):
                     pbar.update()
                     pbar.set_postfix_str(f"Captured yolo empty labels: {os.path.basename(lab_path)}")
     return count
+
+
+def date_utils(start_date: str, end_date: str = None, days: int = None) -> str:
+    """
+    通用日期计算函数
+    :param start_date: 起始日期，字符串格式 "YYYY-MM-DD"
+    :param end_date:   结束日期（可选），字符串格式 "YYYY-MM-DD"
+    :param days:       天数（可选），整数，可以是正数或负数
+    :return: 计算结果的字符串
+    """
+    # 转换为 datetime 对象
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+
+    # 情况1：计算两个日期之间的相差天数
+    if end_date:
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        delta_days = (end - start).days
+        return f"{start_date} 到 {end_date} 相差 {delta_days} 天"
+
+    # 情况2：计算经过 n 天后的日期
+    if days is not None:
+        new_date = start + timedelta(days=days)
+        return f"{start_date} 经过 {days} 天后是 {new_date.strftime('%Y-%m-%d')}"
+
+    return "请至少提供 end_date 或 days 参数"
