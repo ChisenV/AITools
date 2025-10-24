@@ -125,7 +125,9 @@ class TensorRTModel(BaseModelHandler):
         # Analyze the ONNX model
         parser = trt.OnnxParser(self.trt_network, self.trt_logger)
         if not parser.parse_from_file(str(self._model_file)):
-            raise RuntimeError(f"Failed to parse ONNX file: {[e.description for e in parser.errors]}")
+            for i in range(parser.num_errors):
+                print(parser.get_error(i))
+            raise RuntimeError(f"Failed to parse ONNX file.")
 
         # Configure build parameters
         use_fp16 = self.config.get("use_fp16", _TENSORRT_CONFIG_DEFAULT_USE_FP16)
@@ -267,3 +269,16 @@ class TensorRTModel(BaseModelHandler):
         :returns: The equivalent numpy type.
         """
         return trt.nptype(trt_type)
+
+    @staticmethod
+    def trt_plugin():
+        import tensorrt as trt
+        logger = trt.Logger(trt.Logger.WARNING)
+        trt.init_libnvinfer_plugins(logger, "")
+
+        registry = trt.get_plugin_registry()
+        all_plugins = registry.plugin_creator_list
+
+        print("=== 已注册的 TensorRT 插件 ===")
+        for i, creator in enumerate(all_plugins):
+            print(f"[{i}] name={creator.name}, version={creator.plugin_version}, namespace={creator.plugin_namespace}")

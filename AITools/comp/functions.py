@@ -26,13 +26,13 @@ __all__ = [
     "rotate_points",
     "rotate_image_min",
     "order_rectangle_points",
-    "warpAffine_points",
+    "warp_affine_points",
     "img2label_path",
     "img2label_paths",
     "union_label",
     "union_labels",
-    "convertVOC2YOLO",
-    "convertCOCO2YOLO",
+    "convert_voc2yolo",
+    "convert_coco2yolo",
     "segment2box",
     "get_img_files",
     "date_utils"
@@ -408,7 +408,7 @@ def order_rectangle_points(points):
 
 
 @FUNCTIONS.register_component
-def warpAffine_points(points, M, round=None):
+def warp_affine_points(points, M, round=None):
     points = np.asarray(points)
     points = np.column_stack((points, np.ones(len(points))))
     M = np.vstack((M, [0, 0, 1]))
@@ -578,7 +578,7 @@ def img2label_paths(img_paths, image_dirname="images", label_dirname="labels", p
 
 
 @FUNCTIONS.register_component
-def convertVOC2YOLO(voc_dataset, save_dir, label_postfix=".txt", empty_label=True):
+def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=True):
     os.makedirs(save_dir, exist_ok=True)
     for i, item in enumerate(voc_dataset):
         img_path, lab_path = item
@@ -756,14 +756,16 @@ def merge_multi_segment(segments):
 
 
 @FUNCTIONS.register_component
-def convertCOCO2YOLO(json_file, save_dir, use_segments=False, cls91to80=False, cls_filter=None):
+def convert_coco2yolo(json_file, save_dir, use_segments=False, cls91to80=False, cls_filter=None, label_exist_ok=False):
     """Converts COCO JSON format to YOLO label format, with options for segments and class mapping."""
     # save_dir = make_dirs()  # output directory
     coco80 = coco91_to_coco80_class()
 
     # Import json
     fn = Path(save_dir) / "labels"   # folder name
-    os.makedirs(fn, exist_ok=True)
+    if os.path.exists(fn) and not label_exist_ok:
+        shutil.rmtree(fn)  # delete dir
+    os.makedirs(fn, exist_ok=label_exist_ok)
     data = JSONParser().load(json_file)
 
     # Create image dict

@@ -10,8 +10,9 @@ from AITools import IMG_FORMATS
 from AITools.comp.dataset import *
 from AITools.comp.dataset import VOCDataset
 from AITools.comp.functions import *
-from AITools.comp.functions import convertCOCO2YOLO, rotate_image_around_point, generate_yolo_empty_labels, date_utils
+from AITools.comp.functions import convert_coco2yolo, rotate_image_around_point, generate_yolo_empty_labels, date_utils
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
+from AITools.utils.stitch_images import stitch_images
 
 abs_file = r"E:\python_ai_dataset\train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
 rel_file = r"train\Annotations\PinHole@201@201@1@pin0@ID27417(63.44)-NG.xml"
@@ -268,9 +269,19 @@ def OCRCLSDatesetV2_sample_case1():
     # union_label(label_files, os.path.join(dst_dir, "Label.txt"))
 
 def OCRRECDatesetV2_sample_case1():
-    dst_dir = r"E:\python_ai_dataset\OCR\det\from000\toAITrain\rec_20250516_v0.1_treated"
+    src_dir = r"C:\Users\WQS\Documents\WXWork\1688856196451158\Cache\File\2025-09\OCR_20250927(1)\OCR_20250927\OCR-opposite-20250928"
+    matting_dir = r"C:\Users\WQS\Documents\WXWork\1688856196451158\Cache\File\2025-09\OCR_20250927(1)\OCR_20250927\OCR-opposite-20250928\ppocr-rec\rec_20250928_v0.1_opposite"
+    dst_dir = r"C:\Users\WQS\Documents\WXWork\1688856196451158\Cache\File\2025-09\OCR-REC-V4\rec_20250928_v0.1_opposite"
+    od = OCRDatasetV2(
+        src_dir,
+        with_label=True,
+        read_image=False,
+        subject_to="label",
+    )
+    matting_ocr_dataset(od, matting_dir)
+
     d = OCRRECDatasetV2(
-        r"E:\python_ai_dataset\OCR\det\from000\rec\trouble1-treated",
+        matting_dir,
         with_label=True,
         read_image=False,
         subject_to="label",
@@ -408,7 +419,7 @@ def OCRDatesetV2_sample_case2():
         if _label_data is not None:
             for i, _la in enumerate(_label_data):
                 _label_data[i]["points"] = order_rectangle_points(
-                    warpAffine_points(_la["points"], M, round=0)
+                    warp_affine_points(_la["points"], M, round=0)
                 ).tolist()
             _label_str = _label_op(_label_data)
             _label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
@@ -462,11 +473,11 @@ def test_OCRDatesetV2_init():
     # OCRDatesetV2_init_case2()
     # OCRDatesetV2_init_case3()
     # OCRDatesetV2_sample_case0()
-    OCRDatesetV2_sample_case1()
+    # OCRDatesetV2_sample_case1()
     # OCRDatesetV2_sample_case2()
     # OCRRECDatesetV2_sample_case0()
     # OCRCLSDatesetV2_sample_case1()
-    # OCRRECDatesetV2_sample_case1()
+    OCRRECDatesetV2_sample_case1()
 
     # union_labels(r"E:\python_ai_dataset\OCR\det\Label_new\anno")
     # union_labels(r"E:\python_ai_dataset\OCR\det\gather\anno_20250512_train")
@@ -489,7 +500,7 @@ def test_YOLODataset_init():
     print()
 
     d = YOLODataset(
-        root=r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.2\images\val",
+        root=r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train_V4.5.2",
         with_label=True,
         image_dirname=f"images",
         label_dirname=f"labels",
@@ -506,7 +517,7 @@ def test_YOLODataset_init():
 
     VisualizeYOLODataset(
         dataset=d,
-        save_dir=r"E:\python_ai_dataset\foreign-object-detect\2-FOVSlice\train\images-black-green-V3.2-vis-val",
+        save_dir=r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\train_V4.5.2\vis",
     )()
 
     # def label_op(old_label_path, new_label_path):
@@ -618,12 +629,12 @@ def test_coco2yolo():
             2: None,  # paster
             3: None,  # device
             4: 1,     # solder ball, if 是 异物\异物-AIDIAN 等文件夹下用转为1
-            5: None,  # sticker
-            6: 1,     # footprint
+            5: None,  # sticker 贴纸
+            6: 1,     # footprint 焊盘
         }
         return label_map[cls]
 
-    convertCOCO2YOLO(
+    convert_coco2yolo(
         coco_json,
         save_dir=save_dir,
         use_segments=True,
@@ -674,6 +685,24 @@ def test_crop_image():
                       read_image=False)
 
     VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir, "vis"))()
+
+def test_crop_image2():
+    size = 1664
+    from_dir = r"C:\Users\WQS\Documents\WXWork\1688856196451158\Cache\File\2025-09\FOV边缘\新建文件夹\622"
+    crop_dir = r"C:\Users\WQS\Documents\WXWork\1688856196451158\Cache\File\2025-09\FOV边缘\新建文件夹\622-crop"
+    # crop_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.4\cooked\fod_baineng2d_02"
+    CropImages(from_dir, crop_dir + "\images", 2048, 1500, fmt="png",
+               cope_with_label=False, yolo_task='seg', dump_empty=False)()
+
+    # d_y = YOLODataset(crop_dir,
+    #                   image_dirname="images",
+    #                   label_dirname="labels",
+    #                   with_label=True,
+    #                   task="seg",
+    #                   categories=cate,
+    #                   read_image=False)
+    #
+    # VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir, "vis"))()
 
 
 def test_copy_image():
@@ -972,40 +1001,31 @@ def test_voc2yolo2():
 
 categories = {
     0: "SMT_IC",#"SMT_BGA",
-    # 1: "SMT_Capacitor",
-    # 2: "SMT_Diode",
-    # 3: "SMT_IC",
+    1: "SMT_Capacitor",
+    2: "SMT_Diode",
+    3: "SMT_IC",
     # 4: "SMT_QFN",
 }
+
 def test_vis_yolo():
-    dir_path = r"E:\python_ai_dataset\obb\3D-SMT_IC-std\3D-SMT_IC"
-    dst_dir  = r"E:\python_ai_dataset\obb\3D-SMT_IC-std\3D-SMT_IC-split"
-    path_list = [os.path.join(dir_path, i) for i in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, i))]
-    # for path in path_list:
-    vd = VOCDataset(dir_path,
-                    with_label=True,
-                    image_dirname="JPEGImages",
-                    label_dirname="Annotations",
-                    categories=categories,
-                    task='obb',)
-
-    convertVOC2YOLO(vd, save_dir=os.path.join(dir_path, "labels"))
-
+    dir_path = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train"
+    cate_cooked = {
+        0: "entity",
+        1: "solder",
+        2: "solderBall",
+        3: "footprint"
+    }
     dy = YOLODataset(
         dir_path,
-        image_dirname=r"JPEGImages",
+        image_dirname=r"images",
         label_dirname=r"labels",
         with_label=True,
-        task="obb",
-        categories=categories,
+        task="seg",
+        categories=cate_cooked,
         read_image=False,
         subject_to="image"
     )
-    # VisualizeYOLODataset(dy2, save_dir=os.path.join(path, "vis"))()
-    subset = dy.split(ratio=[0.75, 0.25], seed=20250715)
-    for i, (name, s) in enumerate(subset.items()):
-        sub_dy = dy.subset(s)
-        dump_yolo_dataset(sub_dy, destination=dst_dir, sub_dirname=name)
+    VisualizeYOLODataset(dy, save_dir=os.path.join(dir_path, "vis"))()
 
 
 def test_yolo_img_rotate():
@@ -1042,3 +1062,154 @@ def test_yolo_img_rotate():
             # cv2.circle(img,(272, 276), radius=2, color=(0,0,255))
             # imshow("img", img, 0)
             imwrite(os.path.join(dst_dir, f"{filename}_{deg}.{ext}"), img)
+
+
+def test_process_fod_dataset():
+    dataset_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\raw"
+    cooking_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\cooking"
+    cooked_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\cooked"
+    train_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train"
+    train_split_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train_split"
+    dataset_txt = rf"{dataset_dir}/图像裁剪方案.txt"
+    cate = {
+        0: "entity",
+        1: "solder",
+        2: "paster",
+        3: "device",
+        4: "solderBall",
+        5: "sticker",
+        6: "footprint",
+    }
+    cate_cooking = {
+        0: 0,
+        1: 1,
+        2: None,
+        3: None,
+        4: 2,
+        5: None,
+        6: 3,
+    }
+    cate_cooked = {
+        0: "entity",
+        1: "solder",
+        2: "solderBall",
+        3: "footprint"
+    }
+    with open(dataset_txt, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    for i, line in enumerate(lines):
+        if i == 0:
+            continue
+        line = line.strip().replace(" ", "").split(",")
+        if len(line) != 3:
+            continue
+        image_dir, image_prefix, crop_scheme = line
+        print(image_dir, image_prefix, crop_scheme)
+        image_path = os.path.join(dataset_dir, Path(image_dir))
+        label_path = os.path.join(Path(image_path).parent, "labels")
+        annos_path = os.path.join(Path(image_path).parent, "annotations", "annotations.json")
+        convert_coco2yolo(
+            annos_path,
+            Path(label_path).parent,
+            use_segments=True,
+        )
+
+        generate_yolo_empty_labels(image_path, label_path)
+
+        d_y = YOLODataset(str(Path(image_path).parent),
+                          image_dirname="images",
+                          label_dirname="labels",
+                          with_label=True,
+                          task="seg",
+                          categories=cate,
+                          read_image=False)
+
+        # VisualizeYOLODataset(d_y, save_dir=os.path.join(Path(image_path).parent, "vis"))()
+
+        def op(old_path, new_path):
+            if not old_path.endswith(".txt"):
+                shutil.copy(old_path, new_path)
+            else:
+                with open(old_path, "r", encoding="utf-8") as f:
+                    lines = [line.strip() for line in f.readlines() if line.strip()]
+                with open(new_path, "w", encoding="utf-8") as f:
+                    for line in lines:
+                        parts = line.split()
+                        class_id = int(parts[0])
+                        if cate_cooking[class_id] is None:
+                            continue
+                        parts[0] = str(cate_cooking[class_id])
+                        f.write(" ".join(parts) + "\n")
+
+            basename = os.path.basename(new_path)
+            if not basename.startswith(image_prefix):
+                dir_path = os.path.dirname(new_path)
+                ren_path = os.path.join(dir_path, f"{image_prefix}_" + basename)
+                os.rename(new_path, ren_path)
+
+        cooking_dataset_dir = os.path.join(cooking_dir, image_prefix)
+
+        os.makedirs(cooking_dataset_dir, exist_ok=True)
+        dump_yolo_dataset(d_y,
+                          destination=cooking_dataset_dir,
+                          image_file_op=op,
+                          label_file_op=op
+        )
+
+        d_y2 = YOLODataset(cooking_dataset_dir,
+                           image_dirname="images",
+                           label_dirname="labels",
+                           with_label=True,
+                           task="seg",
+                           categories=cate,
+                           read_image=False)
+
+        # VisualizeYOLODataset(d_y2, save_dir=os.path.join(cooking_dataset_dir, "vis"))()
+
+        dir_basename = os.path.basename(cooking_dataset_dir)
+        cooked_dataset_dir = os.path.join(cooked_dir, dir_basename)
+
+        if crop_scheme == "拼接":
+            stitch_images(cooking_dataset_dir, cooked_dataset_dir, 1280, cate_cooked)
+        elif crop_scheme == "待定或保留原尺寸":
+            shutil.copytree(Path(cooking_dataset_dir) / "images", Path(cooked_dataset_dir) / "images")
+            shutil.copytree(Path(cooking_dataset_dir) / "labels", Path(cooked_dataset_dir) / "labels")
+            d_y3 = YOLODataset(cooked_dataset_dir,
+                               image_dirname="images",
+                               label_dirname="labels",
+                               with_label=True,
+                               task="seg",
+                               categories=cate_cooked,
+                               read_image=False)
+            VisualizeYOLODataset(d_y3, save_dir=os.path.join(cooked_dataset_dir, "vis"))()
+        else:
+            w, h = crop_scheme.split("*")
+            w, h = int(w), int(h)
+            CropImages(Path(cooking_dataset_dir) / "images", Path(cooked_dataset_dir) / "images", w, h,
+                       fmt="png", cope_with_label=True, yolo_task='seg', dump_empty=False)()
+            d_y3 = YOLODataset(cooked_dataset_dir,
+                               image_dirname="images",
+                               label_dirname="labels",
+                               with_label=True,
+                               task="seg",
+                               categories=cate_cooked,
+                               read_image=False)
+            VisualizeYOLODataset(d_y3, save_dir=os.path.join(cooked_dataset_dir, "vis"))()
+
+        sub_images_path = os.path.join(cooked_dataset_dir, "images")
+        sub_labels_path = os.path.join(cooked_dataset_dir, "labels")
+        shutil.copytree(sub_images_path, os.path.join(train_dir, "images"), dirs_exist_ok=True)
+        shutil.copytree(sub_labels_path, os.path.join(train_dir, "labels"), dirs_exist_ok=True)
+
+    dy = YOLODataset(train_dir,
+                     image_dirname="images",
+                     label_dirname="labels",
+                     with_label=True,
+                     task="seg",
+                     categories=cate_cooked,
+                     read_image=False)
+    VisualizeYOLODataset(dy, save_dir=os.path.join(train_dir, "vis"))()
+    subset = dy.split(ratio=[0.7, 0.2, 0.1], seed=20251024)
+    for i, (name, s) in enumerate(subset.items()):
+        sub_dy = dy.subset(s)
+        dump_yolo_dataset(sub_dy, destination=train_split_dir, sub_dirname=name)

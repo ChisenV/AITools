@@ -226,7 +226,6 @@ class VisualizeYOLODataset(BaseProcessor):
             img, lab = data
             self.visualize_one(img, lab)
 
-    @threaded
     def visualize_one(self, image, label):
         im = F.imread(Path(image))
         h, w = im.shape[:2]
