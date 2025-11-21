@@ -164,7 +164,10 @@ class TensorRTModel(BaseModelHandler):
         self.trt_config.add_optimization_profile(self.trt_profile)
 
         # Build a serialization engine
-        self.trt_engine = self.trt_builder.build_engine(self.trt_network, self.trt_config)
+        if trt.__version__ > "10.09.0.0":
+            self.trt_engine = self.trt_builder.build_engine_with_config(self.trt_network, self.trt_config)
+        else:
+            self.trt_engine = self.trt_builder.build_engine(self.trt_network, self.trt_config)
         if self.trt_engine is None:
             raise RuntimeError("Failed to build TensorRT engine")
 

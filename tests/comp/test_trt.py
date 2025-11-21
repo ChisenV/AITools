@@ -6,12 +6,16 @@ from PIL import Image
 
 from AITools import TensorRTModel, Config
 from AITools.comp.backend import int_address_to_ndarray
+from AITools.comp.processor import WarpAffineNorm2NCHW
 
 onnx_Path = (r"E:\python_project\ultralytics\project\det\XiDong\General_20241011_"
              r"ep1500_bs8_imgsz320_dataVer7_noPretrained_v8.3.0TOv8.2.0\model.onnx")
+onnx_Path = (r"G:\github\ultralyticshub\ultralytics-individual\OBB-EC\20250101-233045\weights\best.onnx")
 
 trt_Path = (r"E:\python_project\ultralytics\project\det\XiDong\General_20241011_"
              r"ep1500_bs8_imgsz320_dataVer7_noPretrained_v8.3.0TOv8.2.0\model.trt")
+trt_Path = (r"G:\github\ultralyticshub\ultralytics-individual\OBB-EC\20250101-233045\weights\best.trt")
+trt_NMS_Path = (r"G:\github\ultralyticshub\ultralytics-individual\OBB-EC\20250101-233045\weights\best_nms.trt")
 
 
 def hook1(*args, **kwargs):
@@ -39,10 +43,10 @@ def hook1(*args, **kwargs):
     driver.cuMemFreeHost(hostPtr)
 
 
-def test_trt_model():
+def infer_trt_model(path):
     print(hook1)
     with TensorRTModel(
-        trt_Path,
+        path,
         config=Config(
             explicit_batch=True,
             use_fp16=True,
@@ -62,21 +66,35 @@ def test_trt_model():
         # img = np.ones((1, 320, 320, 3), dtype=np.float32)
         total_iter = 10
         total_time = 0
-        img = Image.open(r"E:\python_project\ultralytics\project\det\XiDong\Genera"
-                         r"l_20241011_ep1500_bs8_imgsz320_dataVer7_noPretrained_v8"
-                         r".3.0TOv8.2.0\image.jpg")
-        img = np.array([img])
+        img = Image.open(r"H:\dataset\obb\all\images\test\byd##4.0Dual##20230510084428##fov_122_0.jpg")
+        print(m.info["inputs"][0].name, m.info["inputs"][0].dtype, m.info["inputs"][0].shape, m.info["inputs"][0].size)
+        img = WarpAffineNorm2NCHW(model_input=m.info["inputs"][0]).run(np.array(img))
         print(img.shape)
-        img = np.ascontiguousarray(img.transpose((0, 3, 1, 2)))
+        # img = np.ascontiguousarray(img.transpose((0, 3, 1, 2)))
         for i in range(total_iter):
             # 随机创建
             # img = np.random.rand(1, 320, 320, 3).astype(np.float32)
             # reshape (1, 320, 320, 3) -> (1, 3, 320, 320)
             cur_time = time.perf_counter()
             out = m({
-                "images": img
-            }, in_img_to_hook=img)
+                "images": img.data
+            }, in_img_to_hook=img.data)
             end_time = time.perf_counter()
             #print(f"trt time: {end_time - cur_time}")
             total_time += end_time - cur_time
+            for k, v in out.items():
+                print(f"{i} {k}: {v.shape}")
         print(f"trt avg time: {total_time / total_iter}")
+
+def test_trt_nms_model():
+    # infer_trt_model(trt_Path)
+    # infer_trt_model(trt_NMS_Path)
+
+    onnx_Path1 = (r"G:\project\AITools\tests\model\best-v4.5.2-base.onnx")
+    onnx_Path2 = (r"G:\project\AITools\tests\model\best-v4.5.2-nms.onnx")
+    trt_Path1 = (r"G:\project\AITools\tests\model\best-v4.5.2-base.trt")
+    trt_Path2 = (r"G:\project\AITools\tests\model\best-v4.5.2-nms.trt")
+    onnx_Path3 = (r"H:\model\yolo11n-p6-seg.trt")
+    # infer_trt_model(trt_Path1)
+    # infer_trt_model(trt_Path2)
+    infer_trt_model(onnx_Path3)
