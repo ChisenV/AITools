@@ -8,7 +8,6 @@ import numpy as np
 
 from AITools import IMG_FORMATS
 from AITools.comp.dataset import *
-from AITools.comp.dataset import VOCDataset
 from AITools.comp.functions import *
 from AITools.comp.functions import convert_coco2yolo, rotate_image_around_point, generate_yolo_empty_labels, date_utils
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
@@ -268,10 +267,10 @@ def OCRCLSDatesetV2_sample_case1():
     #                if os.path.isdir(os.path.join(dst_dir, i))]
     # union_label(label_files, os.path.join(dst_dir, "Label.txt"))
 
-def OCRRECDatesetV2_sample_case1():
-    src_dir = r"C:\Users\WQS\Documents\WXWork\1688856196451158\Cache\File\2025-09\OCR_20250927(1)\OCR_20250927\OCR-opposite-20250928"
-    matting_dir = r"C:\Users\WQS\Documents\WXWork\1688856196451158\Cache\File\2025-09\OCR_20250927(1)\OCR_20250927\OCR-opposite-20250928\ppocr-rec\rec_20250928_v0.1_opposite"
-    dst_dir = r"C:\Users\WQS\Documents\WXWork\1688856196451158\Cache\File\2025-09\OCR-REC-V4\rec_20250928_v0.1_opposite"
+def OCRRECDatesetV2_matting_for_AITrain():
+    src_dir = r"E:\python_ai_dataset\OCR\det\Label_new\27-anno_20251110"
+    matting_dir = r"E:\python_ai_dataset\OCR\rec\27-anno_20251110_matting"
+    dst_dir = r"E:\python_ai_dataset\OCR\rec\rec_20251110_v0.1"
     od = OCRDatasetV2(
         src_dir,
         with_label=True,
@@ -477,7 +476,7 @@ def test_OCRDatesetV2_init():
     # OCRDatesetV2_sample_case2()
     # OCRRECDatesetV2_sample_case0()
     # OCRCLSDatesetV2_sample_case1()
-    OCRRECDatesetV2_sample_case1()
+    OCRRECDatesetV2_matting_for_AITrain()
 
     # union_labels(r"E:\python_ai_dataset\OCR\det\Label_new\anno")
     # union_labels(r"E:\python_ai_dataset\OCR\det\gather\anno_20250512_train")
@@ -570,11 +569,11 @@ def test_VOCDataset():
 
 
 def test_convertVOC2yolo():
-    dir_data = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\UV_BUBBLE"
-    dst_dir = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\UV_BUBBLE\labels"
+    dir_data = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\anno\fov-xz\annotations\annotations.json"
+    dst_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\anno\fov-xz"
     crop_dir = r"E:\python_ai_dataset\foreign-object-detect\BUBBLE\UV_BUBBLE\images_crop_{}"
     # d = VOCDataset(dir_data, with_label=True, categories={0: "UV_BUBBLE"}, read_image=False)
-    # convertVOC2YOLO(d, dst_dir)
+    convert_coco2yolo(dir_data, dst_dir, use_segments=True)
     # assert len(os.listdir(dst_dir)) == len(d), "len(os.listdir(dst_dir)) == {}".format(len(os.listdir(dst_dir)))
     #
     # size = 1024
@@ -592,15 +591,15 @@ def test_convertVOC2yolo():
     # VisualizeYOLODataset(d_y, save_dir=os.path.join(crop_dir.format(size), "vis"))()
 
     vis_yolo = r"E:\opensource_project\ultralytics-individual\runs\detect\predict8"
-    d_y = YOLODataset(vis_yolo,
+    d_y = YOLODataset(dst_dir,
                       image_dirname="images",
                       label_dirname="labels",
                       with_label=True,
-                      task="det",
-                      categories={0: "BUBBLE"},
+                      task="seg",
+                      categories={0: "0", 1:"a", 2:"b", 3:"c", 4:"d", 5:"e"},
                       read_image=False)
 
-    VisualizeYOLODataset(d_y, save_dir=os.path.join(vis_yolo, "vis"))()
+    VisualizeYOLODataset(d_y, save_dir=os.path.join(dst_dir, "vis"))()
 
 
 cate = {
@@ -1008,13 +1007,22 @@ categories = {
 }
 
 def test_vis_yolo():
-    dir_path = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train"
+    dir_path = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\raw-v2\Curr_blue_complex"
     cate_cooked = {
         0: "entity",
         1: "solder",
-        2: "solderBall",
-        3: "footprint"
+        2: "paster",
+        3: "device",
+        4: "ball", # solderBall
+        5: "sticker",
+        6: "footprint",
+        7: "xizha"
     }
+    convert_coco2yolo(
+        Path(dir_path) / "annotations" / "annotations.json",
+        dir_path,
+        use_segments=True,
+    )
     dy = YOLODataset(
         dir_path,
         image_dirname=r"images",
@@ -1065,12 +1073,15 @@ def test_yolo_img_rotate():
 
 
 def test_process_fod_dataset():
-    dataset_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\raw"
-    cooking_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\cooking"
-    cooked_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\cooked"
-    train_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train"
-    train_split_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train_split"
+    dataset_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\raw-v2"
+    cooking_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train_cooking"
+    cooked_dir  = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train_cooked"
+    train_dir   = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train"
+    train_split_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train_split_v4.6.6"
     dataset_txt = rf"{dataset_dir}/图像裁剪方案.txt"
+    split_ratio = [0.83, 0.12, 0.05]
+    from datetime import datetime
+    date_num = int(datetime.now().strftime("%Y%m%d"))
     cate = {
         0: "entity",
         1: "solder",
@@ -1079,6 +1090,7 @@ def test_process_fod_dataset():
         4: "solderBall",
         5: "sticker",
         6: "footprint",
+        7: "xizha"
     }
     cate_cooking = {
         0: 0,
@@ -1087,13 +1099,14 @@ def test_process_fod_dataset():
         3: None,
         4: 2,
         5: None,
-        6: 3,
+        6: 1,
+        7: None,
     }
     cate_cooked = {
         0: "entity",
         1: "solder",
         2: "solderBall",
-        3: "footprint"
+        # 3: "footprint"
     }
     with open(dataset_txt, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -1156,13 +1169,13 @@ def test_process_fod_dataset():
                           label_file_op=op
         )
 
-        d_y2 = YOLODataset(cooking_dataset_dir,
-                           image_dirname="images",
-                           label_dirname="labels",
-                           with_label=True,
-                           task="seg",
-                           categories=cate,
-                           read_image=False)
+        # d_y2 = YOLODataset(cooking_dataset_dir,
+        #                    image_dirname="images",
+        #                    label_dirname="labels",
+        #                    with_label=True,
+        #                    task="seg",
+        #                    categories=cate,
+        #                    read_image=False)
 
         # VisualizeYOLODataset(d_y2, save_dir=os.path.join(cooking_dataset_dir, "vis"))()
 
@@ -1170,31 +1183,31 @@ def test_process_fod_dataset():
         cooked_dataset_dir = os.path.join(cooked_dir, dir_basename)
 
         if crop_scheme == "拼接":
-            stitch_images(cooking_dataset_dir, cooked_dataset_dir, 1280, cate_cooked)
+            stitch_images(cooking_dataset_dir, cooked_dataset_dir, 1280, cate_cooked, visualize=False)
         elif crop_scheme == "待定或保留原尺寸":
             shutil.copytree(Path(cooking_dataset_dir) / "images", Path(cooked_dataset_dir) / "images")
             shutil.copytree(Path(cooking_dataset_dir) / "labels", Path(cooked_dataset_dir) / "labels")
-            d_y3 = YOLODataset(cooked_dataset_dir,
-                               image_dirname="images",
-                               label_dirname="labels",
-                               with_label=True,
-                               task="seg",
-                               categories=cate_cooked,
-                               read_image=False)
-            VisualizeYOLODataset(d_y3, save_dir=os.path.join(cooked_dataset_dir, "vis"))()
+            # d_y3 = YOLODataset(cooked_dataset_dir,
+            #                    image_dirname="images",
+            #                    label_dirname="labels",
+            #                    with_label=True,
+            #                    task="seg",
+            #                    categories=cate_cooked,
+            #                    read_image=False)
+            # VisualizeYOLODataset(d_y3, save_dir=os.path.join(cooked_dataset_dir, "vis"))()
         else:
             w, h = crop_scheme.split("*")
             w, h = int(w), int(h)
             CropImages(Path(cooking_dataset_dir) / "images", Path(cooked_dataset_dir) / "images", w, h,
                        fmt="png", cope_with_label=True, yolo_task='seg', dump_empty=False)()
-            d_y3 = YOLODataset(cooked_dataset_dir,
-                               image_dirname="images",
-                               label_dirname="labels",
-                               with_label=True,
-                               task="seg",
-                               categories=cate_cooked,
-                               read_image=False)
-            VisualizeYOLODataset(d_y3, save_dir=os.path.join(cooked_dataset_dir, "vis"))()
+            # d_y3 = YOLODataset(cooked_dataset_dir,
+            #                    image_dirname="images",
+            #                    label_dirname="labels",
+            #                    with_label=True,
+            #                    task="seg",
+            #                    categories=cate_cooked,
+            #                    read_image=False)
+            # VisualizeYOLODataset(d_y3, save_dir=os.path.join(cooked_dataset_dir, "vis"))()
 
         sub_images_path = os.path.join(cooked_dataset_dir, "images")
         sub_labels_path = os.path.join(cooked_dataset_dir, "labels")
@@ -1209,7 +1222,18 @@ def test_process_fod_dataset():
                      categories=cate_cooked,
                      read_image=False)
     VisualizeYOLODataset(dy, save_dir=os.path.join(train_dir, "vis"))()
-    subset = dy.split(ratio=[0.7, 0.2, 0.1], seed=20251024)
-    for i, (name, s) in enumerate(subset.items()):
-        sub_dy = dy.subset(s)
-        dump_yolo_dataset(sub_dy, destination=train_split_dir, sub_dirname=name)
+    # subset = dy.split(ratio=split_ratio, seed=date_num)
+    # for i, (name, s) in enumerate(subset.items()):
+    #     sub_dy = dy.subset(s)
+    #     dump_yolo_dataset(sub_dy, destination=train_split_dir, sub_dirname=name)
+
+    shutil.rmtree(cooking_dir)
+    shutil.rmtree(cooked_dir)
+    # shutil.rmtree(train_dir)
+
+
+def test_crop_img():
+    CropImages(r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\20251112-test",
+               r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\20251112-test2",
+               1664, 1664,
+               fmt="png", cope_with_label=False)()

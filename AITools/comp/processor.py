@@ -341,8 +341,9 @@ def parse_args():
 
 @PROCESSORS.register_component
 class CropImages(BaseProcessor):
-    def __init__(self, input_dir, output_dir, w: int, h: int, suffix='"{}__{}___{}".format(basename, j, i)', fmt='png',
-                 cope_with_label=False, yolo_task='det', dump_empty=True, *args, **kwargs):
+    def __init__(self, input_dir, output_dir, w: int, h: int, *args, suffix='"{}__{}___{}".format(basename, j, i)',
+                 fmt='png', cope_with_label=False, yolo_task='det', dump_empty=True, label_selector: callable = None,
+                 **kwargs):
         """
         Crop images in a directory and save them to another directory.
 
@@ -368,6 +369,7 @@ class CropImages(BaseProcessor):
         self.cope_with_label = cope_with_label
         self.yolo_task = yolo_task
         self.dump_empty = dump_empty
+        self.label_selector = label_selector
 
     def run(self, *args, **kwargs):
         return self()
@@ -575,6 +577,8 @@ class CropImages(BaseProcessor):
             # 寻找新轮廓（使用最外层轮廓）
             contours, _ = cv2.findContours(crop_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
             for contour in contours:
+                if not self.label_selector(contour=contour, crop_h=crop_h, crop_w=crop_w, class_id=class_id):
+                    continue
                 if len(contour) >= 3:  # 有效多边形至少需要3个点
                     # 转换为相对坐标
                     rel_points = contour.squeeze().astype(np.float32) / [crop_w, crop_h]

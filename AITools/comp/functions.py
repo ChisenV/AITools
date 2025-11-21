@@ -977,3 +977,35 @@ def date_utils(start_date: str, end_date: str = None, days: int = None) -> str:
         return f"{start_date} 经过 {days} 天后是 {new_date.strftime('%Y-%m-%d')}"
 
     return "请至少提供 end_date 或 days 参数"
+
+
+def are_axis_aligned_rectangles_intersecting(rect1, rect2):
+    """
+    判断两个轴对齐矩形是否相交。
+
+    参数:
+    rect1 (tuple): 第一个矩形，格式为 (x1, y1, w1, h1)。
+    rect2 (tuple): 第二个矩形，格式为 (x2, y2, w2, h2)。
+
+    返回:
+    bool: 如果相交返回 True，否则返回 False。
+    """
+    x1, y1, w1, h1 = rect1
+    x2, y2, w2, h2 = rect2
+
+    # 检查不相交的条件
+    # 如果 rect1 在 rect2 的右侧
+    if x1 > x2 + w2:
+        return False
+    # 如果 rect2 在 rect1 的右侧
+    if x2 > x1 + w1:
+        return False
+    # 如果 rect1 在 rect2 的下方
+    if y1 > y2 + h2:
+        return False
+    # 如果 rect2 在 rect1 的下方
+    if y2 > y1 + h1:
+        return False
+
+    # 如果所有不相交的条件都不满足，则它们相交
+    return True
