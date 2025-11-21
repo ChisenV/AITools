@@ -1168,7 +1168,7 @@ class SeparateDataset(IterableDataset):
             if isinstance(root, list):
                 self._roots_map = {idx: r for idx, r in enumerate(root) if self.image_path_sep in r}
             elif isinstance(root, (str, Path)):
-                if self.image_path_sep in root:
+                if self.image_path_sep in str(root):
                     self._roots_map = {0: Path(root)}
                 else:
                     self._roots_map = {0: Path(root) / image_dirname}
@@ -1406,7 +1406,7 @@ class SeparateDataset(IterableDataset):
 
 class YOLODataset(SeparateDataset):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, image_dirname="images", label_dirname="labels", **kwargs):
         """
         Args:
             root: root path of dataset.
@@ -1424,7 +1424,7 @@ class YOLODataset(SeparateDataset):
             subject_to: If the number of images and labels in the dataset do not match, what will prevail
                 for the data items of the dataset. Choose in ['image', 'label'].
         """
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, image_dirname=image_dirname, label_dirname=label_dirname, **kwargs)
 
     def img2label_path(self, image_path, label_postfix=".txt"):
         return self.label_path_sep.join(image_path.rsplit(self.image_path_sep, 1)).rsplit(".", 1)[0] + label_postfix
@@ -1634,7 +1634,7 @@ def dump_yolo_dataset(
 
 class VOCDataset(SeparateDataset):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, label_dirname="Annotations", **kwargs):
         """
         Args:
             root: root path of dataset.
@@ -1652,7 +1652,6 @@ class VOCDataset(SeparateDataset):
             subject_to: If the number of images and labels in the dataset do not match, what will prevail
                 for the data items of the dataset. Choose in ['image', 'label'].
         """
-        label_dirname = kwargs.pop('label_dirname') if "label_dirname" in kwargs else "Annotations"
         super().__init__(*args, label_dirname=label_dirname, **kwargs)
 
     def img2label_path(self, image_path, label_postfix=".xml"):

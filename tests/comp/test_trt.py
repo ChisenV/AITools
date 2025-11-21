@@ -1,10 +1,11 @@
+import os
 import time
 
 import numpy as np
 from cuda.bindings import driver
 from PIL import Image
 
-from AITools import TensorRTModel, Config
+from AITools import TensorRTModel, Config, IMG_FORMATS
 from AITools.comp.backend import int_address_to_ndarray
 from AITools.comp.processor import WarpAffineNorm2NCHW
 

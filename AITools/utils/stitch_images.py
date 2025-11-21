@@ -1,3 +1,4 @@
+import argparse
 import os.path
 import shutil
 from pathlib import Path
@@ -152,7 +153,10 @@ def get_resize_transform(original_size, target_sizes=None):
     max_side = max(orig_w, orig_h)
 
     # 选择合适的目标尺寸：大于等于原始最大边且最接近的尺寸
-    target_size = min([size for size in target_sizes if size - 160 < max_side <= size + 160], default=max(target_sizes))
+    if max_side <= target_sizes[0] - 160:
+        target_size = target_sizes[0]
+    else:
+        target_size = min([size for size in target_sizes if size - 160 < max_side <= size + 160], default=max(target_sizes))
 
     transform_matrix, _ = compute_affine_matrix((orig_w, orig_h), (target_size, target_size))
     return target_size, transform_matrix
@@ -386,29 +390,19 @@ def place_image_on_canvas(
         cv2.putText(canvas, name, (x, y + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
 
-def do(data_dir, save_dir):
+def stitch_images(data_dir, save_dir, canvas_size, categories, format="png", rename=True, visualize=True):
     basename = os.path.basename(save_dir)
     save_image_dir = os.path.join(save_dir, "images")
     save_label_dir = os.path.join(save_dir, "labels")
     os.makedirs(save_image_dir, exist_ok=True)
     os.makedirs(save_label_dir, exist_ok=True)
 
-    canvas_size = 1280
-    cate = {
-        0: "entity",
-        1: "solder",
-        2: "paster",
-        3: "device",
-        4: "solderBall",
-        5: "sticker",
-        6: "footprint",
-    }
     dsy = YOLODataset(data_dir,
                       image_dirname="images",
                       label_dirname="labels",
                       with_label=True,
                       task="seg",
-                      categories=cate,
+                      categories=categories,
                       read_image=False)
     canvases = stitch_images_to_canvas(dsy.images, canvas_size)
 
@@ -470,7 +464,7 @@ def do(data_dir, save_dir):
                 zeros[:] = 0
         if is_out_canvas:
             continue
-        imwrite(f"{save_image_dir}/canvas_{canvas_id}.png", current_canvas)
+        imwrite(f"{save_image_dir}/canvas_{canvas_id}.{format.replace('.','')}", current_canvas)
         open(f"{save_label_dir}/canvas_{canvas_id}.txt", 'w', encoding='utf-8').write("\n".join(current_canvas_label_lines))
 
     ds2 = YOLODataset(save_dir,
@@ -478,25 +472,36 @@ def do(data_dir, save_dir):
                       label_dirname="labels",
                       with_label=True,
                       task="seg",
-                      categories=cate,
+                      categories=categories,
                       read_image=False)
-    for idx, i in enumerate(ds2):
-        im_path, la_path = i
-        im_dir_path = os.path.dirname(im_path)
-        la_dir_path = os.path.dirname(la_path)
-        new_im_dir = os.path.join(im_dir_path, f"{basename}_" + os.path.basename(im_path))
-        new_la_dir = os.path.join(la_dir_path, f"{basename}_" + os.path.basename(la_path))
-        os.rename(im_path, new_im_dir)
-        os.rename(la_path, new_la_dir)
-        ds2[idx] = Path(new_im_dir), Path(new_la_dir)
-
-    VisualizeYOLODataset(ds2, save_dir=os.path.join(save_dir, "vis"))()
+    if rename:
+        for idx, i in enumerate(ds2):
+            im_path, la_path = i
+            im_dir_path = os.path.dirname(im_path)
+            la_dir_path = os.path.dirname(la_path)
+            new_im_dir = os.path.join(im_dir_path, f"{basename}_" + os.path.basename(im_path))
+            new_la_dir = os.path.join(la_dir_path, f"{basename}_" + os.path.basename(la_path))
+            os.rename(im_path, new_im_dir)
+            os.rename(la_path, new_la_dir)
+            ds2[idx] = Path(new_im_dir), Path(new_la_dir)
+    if visualize:
+        VisualizeYOLODataset(ds2, save_dir=os.path.join(save_dir, "vis"))()
 
 
 if __name__ == "__main__":
-    src_top_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked"
-    dirlist = ["fod_aidian", "fod_baineng2d_01", "fod_baineng2d_02", "fod_baineng3d"]
-    for i in dirlist:
-        data_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\cooked\{i}"
-        save_dir = rf"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\crop\{i}"
-        do(data_dir, save_dir)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_dir", type=str)
+    parser.add_argument("--save_dir", type=str)
+
+    args = parser.parse_args()
+    cate = {
+        0: "entity",
+        1: "solder",
+        2: "paster",
+        3: "device",
+        4: "solderBall",
+        5: "sticker",
+        6: "footprint",
+    }
+    canvas_size = 1280
+    stitch_images(args.data_dir, args.save_dir, canvas_size, cate)

@@ -4,6 +4,7 @@ import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Union
+from datetime import datetime, timedelta
 
 import cv2
 import numpy as np
@@ -25,15 +26,16 @@ __all__ = [
     "rotate_points",
     "rotate_image_min",
     "order_rectangle_points",
-    "warpAffine_points",
+    "warp_affine_points",
     "img2label_path",
     "img2label_paths",
     "union_label",
     "union_labels",
-    "convertVOC2YOLO",
-    "convertCOCO2YOLO",
+    "convert_voc2yolo",
+    "convert_coco2yolo",
     "segment2box",
-    "get_img_files"
+    "get_img_files",
+    "date_utils"
 ]
 
 from .parser import XMLParser, JSONParser
@@ -48,7 +50,6 @@ from AITools.base.vision_def import (
     IMG_FORMATS,
 )
 from AITools.core.manager import ComponentManager
-
 
 FUNCTIONS = ComponentManager("functions")
 
@@ -210,10 +211,10 @@ def yolo_to_absolute(bbox: BoundingBox, width: int, height: int):
     x, y, w, h = bbox.coords
     return BoundingBox(
         coords=[
-            (x - w/2) * width,   # x_min
-            (y - h/2) * height,  # y_min
-            (x + w/2) * width,   # x_max
-            (y + h/2) * height   # y_max
+            (x - w / 2) * width,  # x_min
+            (y - h / 2) * height,  # y_min
+            (x + w / 2) * width,  # x_max
+            (y + h / 2) * height  # y_max
         ],
         format=BoxFormat.XYXY,
         normalized=False
@@ -407,7 +408,7 @@ def order_rectangle_points(points):
 
 
 @FUNCTIONS.register_component
-def warpAffine_points(points, M, round=None):
+def warp_affine_points(points, M, round=None):
     points = np.asarray(points)
     points = np.column_stack((points, np.ones(len(points))))
     M = np.vstack((M, [0, 0, 1]))
@@ -577,7 +578,7 @@ def img2label_paths(img_paths, image_dirname="images", label_dirname="labels", p
 
 
 @FUNCTIONS.register_component
-def convertVOC2YOLO(voc_dataset, save_dir, label_postfix=".txt", empty_label=True):
+def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=True):
     os.makedirs(save_dir, exist_ok=True)
     for i, item in enumerate(voc_dataset):
         img_path, lab_path = item
@@ -755,14 +756,16 @@ def merge_multi_segment(segments):
 
 
 @FUNCTIONS.register_component
-def convertCOCO2YOLO(json_file, save_dir, use_segments=False, cls91to80=False, cls_filter=None):
+def convert_coco2yolo(json_file, save_dir, use_segments=False, cls91to80=False, cls_filter=None, label_exist_ok=False):
     """Converts COCO JSON format to YOLO label format, with options for segments and class mapping."""
     # save_dir = make_dirs()  # output directory
     coco80 = coco91_to_coco80_class()
 
     # Import json
     fn = Path(save_dir) / "labels"   # folder name
-    os.makedirs(fn, exist_ok=True)
+    if os.path.exists(fn) and not label_exist_ok:
+        shutil.rmtree(fn)  # delete dir
+    os.makedirs(fn, exist_ok=label_exist_ok)
     data = JSONParser().load(json_file)
 
     # Create image dict
@@ -949,3 +952,60 @@ def generate_yolo_empty_labels(images_dir, labels_dir, pbar: tqdm = None):
                     pbar.update()
                     pbar.set_postfix_str(f"Captured yolo empty labels: {os.path.basename(lab_path)}")
     return count
+
+
+def date_utils(start_date: str, end_date: str = None, days: int = None) -> str:
+    """
+    通用日期计算函数
+    :param start_date: 起始日期，字符串格式 "YYYY-MM-DD"
+    :param end_date:   结束日期（可选），字符串格式 "YYYY-MM-DD"
+    :param days:       天数（可选），整数，可以是正数或负数
+    :return: 计算结果的字符串
+    """
+    # 转换为 datetime 对象
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+
+    # 情况1：计算两个日期之间的相差天数
+    if end_date:
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+        delta_days = (end - start).days
+        return f"{start_date} 到 {end_date} 相差 {delta_days} 天"
+
+    # 情况2：计算经过 n 天后的日期
+    if days is not None:
+        new_date = start + timedelta(days=days)
+        return f"{start_date} 经过 {days} 天后是 {new_date.strftime('%Y-%m-%d')}"
+
+    return "请至少提供 end_date 或 days 参数"
+
+
+def are_axis_aligned_rectangles_intersecting(rect1, rect2):
+    """
+    判断两个轴对齐矩形是否相交。
+
+    参数:
+    rect1 (tuple): 第一个矩形，格式为 (x1, y1, w1, h1)。
+    rect2 (tuple): 第二个矩形，格式为 (x2, y2, w2, h2)。
+
+    返回:
+    bool: 如果相交返回 True，否则返回 False。
+    """
+    x1, y1, w1, h1 = rect1
+    x2, y2, w2, h2 = rect2
+
+    # 检查不相交的条件
+    # 如果 rect1 在 rect2 的右侧
+    if x1 > x2 + w2:
+        return False
+    # 如果 rect2 在 rect1 的右侧
+    if x2 > x1 + w1:
+        return False
+    # 如果 rect1 在 rect2 的下方
+    if y1 > y2 + h2:
+        return False
+    # 如果 rect2 在 rect1 的下方
+    if y2 > y1 + h1:
+        return False
+
+    # 如果所有不相交的条件都不满足，则它们相交
+    return True
