@@ -18,7 +18,7 @@ if os.path.exists('README.md'):
 setup(
     name="AITools",
     version=version,
-    description="A Python package for AI model deployment and inference",
+    description="A Python package for AI model deployment and inference and dataset process",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="ChisenV",
@@ -41,6 +41,6 @@ setup(
     install_requires=requirements,
     include_package_data=True,
     zip_safe=False,
-    license="MIT",
+    license="Apache-2.0 license",
     keywords="ai, machine learning, model deployment, inference, onnx, tensorrt",
 )
