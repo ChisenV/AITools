@@ -579,6 +579,9 @@ def img2label_paths(img_paths, image_dirname="images", label_dirname="labels", p
 
 @FUNCTIONS.register_component
 def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=True):
+    if not voc_dataset.with_label:
+        print("voc_dataset without label")
+        return
     os.makedirs(save_dir, exist_ok=True)
     for i, item in enumerate(voc_dataset):
         img_path, lab_path = item
@@ -589,7 +592,7 @@ def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=Tr
                 if empty_label:
                     open(os.path.join(save_dir, file_name), "w").close()
                 continue
-            data = XMLParser().load(lab_path)
+            data = XMLParser.load(lab_path)
             objs = data['annotation'].get('object', [])
             if isinstance(objs, dict):
                 objs = [objs]
@@ -664,7 +667,7 @@ def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=Tr
                         x3, y3, x4, y4 = float(x3) / im_w, float(y3) / im_h, float(x4) / im_w, float(y4) / im_h
                         f.write(f"{cla_id} {x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4}\n")
             if xml_dump:
-                XMLParser().dump(data, lab_path, indent='')
+                XMLParser.dump(data, lab_path, indent='')
                 # print("New dump xml:", lab_path)
         except Exception as e:
             print(img_path, lab_path, str(e))
@@ -756,7 +759,14 @@ def merge_multi_segment(segments):
 
 
 @FUNCTIONS.register_component
-def convert_coco2yolo(json_file, save_dir, use_segments=False, cls91to80=False, cls_filter=None, label_exist_ok=False):
+def convert_coco2yolo(
+    json_file,
+    save_dir,
+    use_segments=False,
+    cls91to80=False,
+    cls_filter=None,
+    label_exist_ok=False
+):
     """Converts COCO JSON format to YOLO label format, with options for segments and class mapping."""
     # save_dir = make_dirs()  # output directory
     coco80 = coco91_to_coco80_class()
@@ -820,6 +830,201 @@ def convert_coco2yolo(json_file, save_dir, use_segments=False, cls91to80=False, 
             for i in range(len(bboxes)):
                 line = (*(segments[i] if use_segments else bboxes[i]),)  # cls, box or segments
                 file.write(("%g " * len(line)).rstrip() % line + "\n")
+
+    categories = {}
+    for cate in data["categories"]:
+        categories[cate['id'] - 1] = cate['name']
+
+    return categories
+
+
+def convert_yolo2coco(dataset, output_json):
+    """
+    Converts YOLO format to COCO JSON format.
+
+    Args:
+        dataset: Yolo dataset
+        output_json: Path to save COCO format JSON file
+    """
+
+    # Initialize COCO data structure
+    coco_data = {
+        "info": {
+            "description": "COCO dataset converted from YOLO format",
+            "version": "1.0",
+            "year": int(datetime.now().strftime("%Y")),
+            "contributor": "WQS",
+            "date_created": ""
+        },
+        "licenses": [],
+        "images": [],
+        "annotations": [],
+        "categories": []
+    }
+
+    for i, name in dataset.categories().items():
+        coco_data["categories"].append({
+            "id": i + 1,  # COCO uses 1-indexed categories
+            "name": name,
+            "supercategory": "none"
+        })
+
+    # Process images and annotations
+    image_id = 1
+    annotation_id = 1
+
+    for img_path, label_path in tqdm(dataset, desc="Converting images"):
+        img_path = Path(img_path)
+        # Skip if label file doesn't exist
+        if not Path(label_path).exists():
+            continue
+
+        # Read image to get dimensions
+        try:
+            img = imread(str(img_path))
+            if img is None:
+                continue
+            height, width = img.shape[:2]
+        except Exception as e:
+            print(f"Error reading image {img_path}: {e}")
+            continue
+
+        # Add image to COCO data
+        coco_data["images"].append({
+            "id": image_id,
+            "file_name": img_path.name,
+            "height": height,
+            "width": width,
+            "license": 0,
+            "flickr_url": "",
+            "coco_url": "",
+            "date_captured": ""
+        })
+
+        # Read YOLO labels
+        with open(label_path, 'r') as f:
+            lines = f.readlines()
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+
+            parts = line.split()
+
+            if dataset.task in ['det', 'detect']:
+                if len(parts) < 5:
+                    continue
+
+                # YOLO format: class_id x_center y_center width height
+                class_id = int(parts[0])
+                x_center = float(parts[1])
+                y_center = float(parts[2])
+                bbox_width = float(parts[3])
+                bbox_height = float(parts[4])
+
+                # Convert from normalized YOLO format to COCO format
+                # COCO: [x_min, y_min, width, height] in absolute pixels
+                x_min = (x_center - bbox_width / 2) * width
+                y_min = (y_center - bbox_height / 2) * height
+                bbox_w = bbox_width * width
+                bbox_h = bbox_height * height
+
+                # Ensure bbox is within image bounds
+                x_min = max(0, x_min)
+                y_min = max(0, y_min)
+                bbox_w = min(bbox_w, width - x_min)
+                bbox_h = min(bbox_h, height - y_min)
+
+                # Check for valid bbox
+                if bbox_w <= 0 or bbox_h <= 0:
+                    continue
+
+                # Get COCO category id (1-indexed)
+                if class_id >= len(coco_data["categories"]):
+                    print(f"Warning: class_id {class_id} exceeds available classes")
+                    continue
+
+                category_id = class_id + 1
+                annotation = {
+                    "id": annotation_id,
+                    "image_id": image_id,
+                    "category_id": category_id,
+                    "bbox": [float(x_min), float(y_min), float(bbox_w), float(bbox_h)],
+                    "area": float(bbox_w * bbox_h),
+                    "segmentation": [],  # YOLO doesn't have segmentation
+                    "iscrowd": 0
+                }
+            elif dataset.task in ['obb',]:
+                # YOLO format: class_id x1 y1 x2 y2 x3 y3 x4 y4
+                annotation = {}
+            elif dataset.task in ['seg', 'segmentation']:
+                # YOLO format: class_id x1 y1 x2 y2 x3 y3 x4 y4 ...
+                if len(parts) < 3:  # Need at least class_id and one point
+                    continue
+
+                class_id = int(parts[0])
+                points = list(map(float, parts[1:]))
+
+                # Check if number of points is even (x,y pairs)
+                if len(points) % 2 != 0:
+                    continue
+
+                # Convert normalized points to absolute coordinates
+                abs_points = []
+                for i in range(0, len(points), 2):
+                    x = points[i] * width
+                    y = points[i + 1] * height
+                    abs_points.extend([x, y])
+
+                # Calculate bbox from segmentation
+                x_coords = abs_points[0::2]
+                y_coords = abs_points[1::2]
+
+                x_min = max(0, min(x_coords))
+                y_min = max(0, min(y_coords))
+                x_max = min(width, max(x_coords))
+                y_max = min(height, max(y_coords))
+
+                bbox_w = x_max - x_min
+                bbox_h = y_max - y_min
+
+                if bbox_w <= 0 or bbox_h <= 0:
+                    continue
+
+                # Get COCO category id
+                if class_id >= len(coco_data["categories"]):
+                    continue
+
+                category_id = class_id + 1
+
+                # Add annotation to COCO data
+                annotation = {
+                    "id": annotation_id,
+                    "image_id": image_id,
+                    "category_id": category_id,
+                    "bbox": [float(x_min), float(y_min), float(bbox_w), float(bbox_h)],
+                    "area": float(bbox_w * bbox_h),
+                    "segmentation": [abs_points],  # COCO segmentation format
+                    "iscrowd": 0
+                }
+            else:
+                annotation = {}
+
+            if annotation:
+                coco_data["annotations"].append(annotation)
+                annotation_id += 1
+        image_id += 1
+
+    # Save to JSON file
+    JSONParser().dump(coco_data, output_json, indent=2)
+
+    print(f"Conversion complete. Saved to {output_json}")
+    print(f"Total images: {len(coco_data['images'])}")
+    print(f"Total annotations: {len(coco_data['annotations'])}")
+    print(f"Total categories: {len(coco_data['categories'])}")
+
+    return coco_data
 
 
 @FUNCTIONS.register_component
@@ -929,8 +1134,8 @@ def generate_yolo_empty_labels(images_dir, labels_dir, pbar: tqdm = None):
     Generate YOLO empty labels.
 
     Args:
-        images_dir (str): Path to the image dataset directory.
-        labels_dir (str): Path to the output YOLO labels directory.
+        images_dir (str, Path): Path to the image dataset directory.
+        labels_dir (str, Path): Path to the output YOLO labels directory.
         pbar (tqdm): Progress bar.
     """
 

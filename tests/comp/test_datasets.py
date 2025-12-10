@@ -9,7 +9,8 @@ import numpy as np
 from AITools import IMG_FORMATS
 from AITools.comp.dataset import *
 from AITools.comp.functions import *
-from AITools.comp.functions import convert_coco2yolo, rotate_image_around_point, generate_yolo_empty_labels, date_utils
+from AITools.comp.functions import convert_coco2yolo, rotate_image_around_point, generate_yolo_empty_labels, date_utils, \
+    convert_yolo2coco
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
 from AITools.utils.stitch_images import stitch_images
 
@@ -268,9 +269,9 @@ def OCRCLSDatesetV2_sample_case1():
     # union_label(label_files, os.path.join(dst_dir, "Label.txt"))
 
 def OCRRECDatesetV2_matting_for_AITrain():
-    src_dir = r"E:\python_ai_dataset\OCR\det\Label_new\27-anno_20251110"
-    matting_dir = r"E:\python_ai_dataset\OCR\rec\27-anno_20251110_matting"
-    dst_dir = r"E:\python_ai_dataset\OCR\rec\rec_20251110_v0.1"
+    src_dir = r"E:\python_ai_dataset\OCR\det\Label_new\31-anno_20251121"
+    matting_dir = r"E:\python_ai_dataset\OCR\rec\31-anno_20251121_matting"
+    dst_dir = r"E:\python_ai_dataset\OCR\rec\rec_31_20251121_v0.1"
     od = OCRDatasetV2(
         src_dir,
         with_label=True,
@@ -1237,3 +1238,79 @@ def test_crop_img():
                r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\20251112-test2",
                1664, 1664,
                fmt="png", cope_with_label=False)()
+
+
+def test_vis_coco2_ds():
+    dir_name = "slice_image_train"
+    json_file = r"train_2000_025"
+    dataset_dir = Path(rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}")
+    cooked_dataset_dir = Path(rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}_crop")
+    categories = convert_coco2yolo(
+        rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}\{json_file}.json",
+        dataset_dir,
+    )
+
+    generate_yolo_empty_labels(dataset_dir / 'images', dataset_dir / 'labels')
+
+    CropImages(
+        Path(dataset_dir) / "images", Path(cooked_dataset_dir) / "images", 1000, 1000,
+        fmt="png", cope_with_label=True, yolo_task='det', dump_empty=False,
+    )()
+
+    dy = YOLODataset(
+        cooked_dataset_dir,
+        image_dirname="images",
+        label_dirname="labels",
+        with_label=True,
+        task="det",
+        categories=categories,
+    )
+    convert_yolo2coco(dy, cooked_dataset_dir / f"{json_file}.json")
+    VisualizeYOLODataset(dy, cooked_dataset_dir / 'vis')()
+
+
+def test_vis_coco2_ds2():
+    dir_name = "slice_image_train_crop"
+    json_file = r"train_2000_025"
+    dataset_dir = Path(rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}")
+    destination = rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}_split"
+    categories = convert_coco2yolo(
+        rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}\{json_file}.json",
+        dataset_dir,
+    )
+    dy = YOLODataset(
+        dataset_dir,
+        image_dirname="images",
+        label_dirname="labels",
+        with_label=True,
+        task="det",
+        categories=categories,
+    )
+    subset = dy.split(ratio=[0.5,0.3,0.2], seed=20251210)
+    for i, (name, s) in enumerate(subset.items()):
+        sub_dy = dy.subset(s)
+        dump_yolo_dataset(sub_dy,
+                          destination=destination,
+                          sub_dirname=name)
+        convert_yolo2coco(sub_dy, Path(destination) / f"{json_file}_{name}.json")
+    # VisualizeYOLODataset(dy, dataset_dir / 'vis')()
+
+
+def test_convert_coco2yolo():
+    dataset = r"E:\python_ai_dataset\COCOtoSLICE-S1-2000\VOC"
+    d = VOCDataset(
+        dataset,
+        with_label=True,
+        task='obb',
+    )
+    print(len(d), d.task, d.is_read_image)
+    print(d.categories())
+    convert_voc2yolo(d, Path(dataset) / 'labels')
+    dy = YOLODataset(
+        dataset,
+        categories=d.categories(),
+        with_label=True,
+        task='obb'
+    )
+    VisualizeYOLODataset(dy, Path(dataset) / 'vis')()
+    convert_yolo2coco(dy, Path(dataset) / 'train.json')

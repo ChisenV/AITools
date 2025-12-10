@@ -343,7 +343,7 @@ def parse_args():
 class CropImages(BaseProcessor):
     def __init__(self, input_dir, output_dir, w: int, h: int, *args, suffix='"{}__{}___{}".format(basename, j, i)',
                  fmt='png', cope_with_label=False, yolo_task='det', dump_empty=True, label_selector: callable = None,
-                 **kwargs):
+                 image_op: callable = None, **kwargs):
         """
         Crop images in a directory and save them to another directory.
 
@@ -370,6 +370,10 @@ class CropImages(BaseProcessor):
         self.yolo_task = yolo_task
         self.dump_empty = dump_empty
         self.label_selector = label_selector
+        if image_op is None:
+            def image_op(im):
+                return im
+        self.image_op = image_op
 
     def run(self, *args, **kwargs):
         return self()
@@ -420,7 +424,7 @@ class CropImages(BaseProcessor):
                         write = self.deal_with_yolo_labels(image_path, crop_img_path, image.shape[:2],
                                                            (j, i, _w, _h), self.dump_empty)
                     if write or self.dump_empty:
-                        F.imwrite(crop_img_path, image[i:i + _h, j:j + _w])
+                        F.imwrite(crop_img_path, self.image_op(image[i:i + _h, j:j + _w]))
                     pbar.set_postfix({'output': eval(self.suffix) + f".{self.format}"})
 
     def deal_with_yolo_labels(self, orig_img_path, crop_img_path, orig_size, crop_pos, dump_empty=True):
@@ -574,14 +578,16 @@ class CropImages(BaseProcessor):
             abs_points = np.array(coords, dtype=np.float32).reshape(-1, 2) * [orig_w, orig_h]
             cv2.fillPoly(class_mask, [np.array(abs_points, dtype=np.int32)], color=255)
             crop_mask = class_mask[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
+            crop_mask = self.image_op(crop_mask)
+            cropped_h, cropped_w = crop_mask.shape[0], crop_mask.shape[1]
             # 寻找新轮廓（使用最外层轮廓）
             contours, _ = cv2.findContours(crop_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
             for contour in contours:
-                if not self.label_selector(contour=contour, crop_h=crop_h, crop_w=crop_w, class_id=class_id):
+                if not self.label_selector(contour=contour, crop_h=cropped_h, crop_w=cropped_w, class_id=class_id):
                     continue
                 if len(contour) >= 3:  # 有效多边形至少需要3个点
                     # 转换为相对坐标
-                    rel_points = contour.squeeze().astype(np.float32) / [crop_w, crop_h]
+                    rel_points = contour.squeeze().astype(np.float32) / [cropped_h, cropped_w]
                     normalized = [f"{p:.6f}" for point in rel_points.tolist() for p in point]
                     new_lines.append(f"{class_id} " + " ".join(normalized))
             class_mask[:, :] = 0

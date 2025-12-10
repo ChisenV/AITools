@@ -38,8 +38,11 @@ __all__ = [
 
 from AITools.base.dataset_def import IterableDataset, T_co
 from AITools.base.vision_def import IMG_FORMATS
-from AITools.core.manager import ComponentManager, get_component_manager
-from AITools.comp.functions import parse_ppocr_label, imread, imwrite, plot_box_and_text_v2, img2label_path
+from AITools.core.manager import ComponentManager
+from AITools.comp.functions import (
+    parse_ppocr_label, imread, imwrite, plot_box_and_text_v2, img2label_path
+)
+from AITools.comp.parser import XMLParser
 
 DATASETS = ComponentManager("datasets")
 
@@ -54,6 +57,31 @@ def _validate_indices(indices, obj: Sized) -> list:
     """Validate and filter the index list"""
     max_idx = len(obj) - 1
     return [idx for idx in indices if 0 <= idx <= max_idx]
+
+
+class DoNotReadImage:
+    """禁用梯度计算的上下文管理器"""
+
+    def __init__(self, d):
+        self.prev = d
+        self.record_read_image = d.is_read_image
+
+    def __enter__(self):
+        self.prev._read_image = False
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.prev._read_image = self.record_read_image
+        return False
+
+    def __call__(self, func):
+        """作为装饰器使用"""
+
+        def wrapper(*args, **kwargs):
+            with self:
+                return func(*args, **kwargs)
+
+        return wrapper
 
 
 @DATASETS.register_component
@@ -1057,22 +1085,22 @@ def union_ocr_dataset_label(label_files, dst_file):
 class SeparateDataset(IterableDataset):
 
     def __init__(
-            self,
-            root: Union[str, Path, List[Union[str, Path]]] = None,
-            *,
-            with_image: bool = True,
-            with_label: bool = False,
-            image_dirname: str = "images",
-            label_dirname: str = "labels",
-            task: str = "det",
-            categories: Union[Dict[str, int], Dict[int, str]] = None,
-            subject_to: str = "image",
-            read_image: bool = False,
-            transformers=None,
-            kpt_shape=(17, 3),
-            hooks: Dict[str, List[Callable]] = None,
-            fix_bad_data: bool = False,
-            **kwargs
+        self,
+        root: Union[str, Path, List[Union[str, Path]]] = None,
+        *,
+        with_image: bool = True,
+        with_label: bool = False,
+        image_dirname: str = "images",
+        label_dirname: str = "labels",
+        task: str = "det",
+        categories: Union[Dict[str, int], Dict[int, str]] = None,
+        subject_to: str = "image",
+        read_image: bool = False,
+        transformers=None,
+        kpt_shape=(17, 3),
+        hooks: Dict[str, List[Callable]] = None,
+        fix_bad_data: bool = False,
+        **kwargs
     ):
         """
         Args:
@@ -1104,9 +1132,6 @@ class SeparateDataset(IterableDataset):
         self.task = task
         self.transformers = transformers
         self.subject_to = subject_to
-        is_name2id = all(isinstance(k, str) for k in categories.keys())
-        self._cate_id2name = {v: k for k, v in categories.items()} if is_name2id else categories
-        self._cate_name2is = categories if is_name2id else {v: k for k, v in categories.items()}
         self.kpt_shape = kpt_shape
         self._index = 0
         self._begin = 0
@@ -1118,6 +1143,14 @@ class SeparateDataset(IterableDataset):
 
         self._parse_root(root, with_image, image_dirname)
         self._parse_image_label()
+
+        if categories is None:
+            with DoNotReadImage(self):
+                self.auto_collect_categories()
+        else:
+            is_name2id = all(isinstance(k, str) for k in categories.keys())
+            self._cate_id2name = {v: k for k, v in categories.items()} if is_name2id else categories
+            self._cate_name2id = categories if is_name2id else {v: k for k, v in categories.items()}
 
     @property
     def with_image(self):
@@ -1152,11 +1185,13 @@ class SeparateDataset(IterableDataset):
     def category_size(self):
         return len(self._cate_id2name)
 
-    def categories(self, key):
+    def categories(self, key=None):
         if isinstance(key, str):
-            return self._cate_name2is.get(key, None)
+            return self._cate_name2id.get(key, None)
         elif isinstance(key, int):
             return self._cate_id2name.get(key, None)
+        elif key is None:
+            return self._cate_id2name
         else:
             raise ValueError("Not expected type of key: {}".format(type(key)))
 
@@ -1403,6 +1438,9 @@ class SeparateDataset(IterableDataset):
         for hook in self.hooks.get(name, []):
             hook(*args, **kwargs)
 
+    def auto_collect_categories(self):
+        raise NotImplementedError
+
 
 class YOLODataset(SeparateDataset):
 
@@ -1519,8 +1557,27 @@ class YOLODataset(SeparateDataset):
 
         return annotations
 
+    def auto_collect_categories(self):
+        if not self.with_label:
+            return
+        categories = set()
+        for _, label_path in self:
+            if label_path and os.path.exists(label_path):
+                label = self._parse_label_file(label_path, fix_data=self.fix_bad_data)
+                for la in label:
+                    categories.add(la[0])
+        self._cate_id2name = {cid: str(cid) for cid in categories}
+        self._cate_name2id = {v: k for k, v in self._cate_id2name.items()}
 
-def split(dataset, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True, specified=None):
+
+def split(
+    dataset,
+    ratio: Union[float, List[float]] = None,
+    subset_name=None,
+    seed: int = None,
+    grouped: bool = True,
+    specified=None
+):
     if ratio is None:
         ratio = [0.6, 0.2, 0.2]
     elif isinstance(ratio, float):
@@ -1581,14 +1638,14 @@ def validate_normalized_coords(coords, l_n, fix_data=False):
 
 
 def dump_yolo_dataset(
-        dataset: YOLODataset,
-        destination: str,
-        image_file_op: Union[str, Callable] = "copy",
-        label_file_op: Union[str, Callable] = "copy",
-        image_dirname: str = "images",
-        label_dirname: str = "labels",
-        sub_dirname: str = "",
-        tqdm_enable: bool = True,
+    dataset: YOLODataset,
+    destination: str,
+    image_file_op: Union[str, Callable] = "copy",
+    label_file_op: Union[str, Callable] = "copy",
+    image_dirname: str = "images",
+    label_dirname: str = "labels",
+    sub_dirname: str = "",
+    tqdm_enable: bool = True,
 ):
     if not dataset:
         raise ValueError("Dataset is empty.")
@@ -1670,5 +1727,24 @@ class VOCDataset(SeparateDataset):
             ValueError: If label format doesn't match task requirements
         """
 
-        data = get_component_manager("Parser")["XMLParser"]().load(label_path)
+        data = XMLParser.load(label_path)
         return data
+
+    def auto_collect_categories(self):
+        if not self.with_label:
+            return
+        categories = set()
+        for _, label_path in self:
+            if label_path and os.path.exists(label_path):
+                label = self._parse_label_file(label_path)["annotation"]
+                if "object" in label.keys():
+                    if isinstance(label["object"], list):
+                        for obj in label["object"]:
+                            categories.add(obj["name"])
+                    else:
+                        if "name" in label["object"].keys():
+                            categories.add(label["object"]["name"])
+                else:
+                    print("object is null")
+        self._cate_id2name = {cid: name for cid, name in enumerate(categories)}
+        self._cate_name2id = {v: k for k, v in self._cate_id2name.items()}

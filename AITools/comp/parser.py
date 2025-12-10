@@ -81,11 +81,11 @@ class XMLParser(Parser):
 
     @classmethod
     def load(
-            cls,
-            path: Union[str, Path],
-            fmt_att2key: str = '_{}_',
-            unlabeled_text_key: str = '#text',
-            **kwargs
+        cls,
+        path: Union[str, Path],
+        fmt_att2key: str = '_{}_',
+        unlabeled_text_key: str = '#text',
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Load the data from a file
@@ -129,14 +129,14 @@ class XMLParser(Parser):
 
     @classmethod
     def dump(
-            cls,
-            data: Dict[str, Any],
-            path: Union[str, Path],
-            fmt_att2key: str = '_{}_',
-            unlabeled_text_key: str = '#text',
-            encoding='utf-8',
-            indent='\t',
-            **kwargs
+        cls,
+        data: Dict[str, Any],
+        path: Union[str, Path],
+        fmt_att2key: str = '_{}_',
+        unlabeled_text_key: str = '#text',
+        encoding='utf-8',
+        indent='\t',
+        **kwargs
     ) -> None:
         """
         Save the data to a file
