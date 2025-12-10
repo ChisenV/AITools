@@ -61,17 +61,13 @@ def infer_trt_model(path):
         if m is None:
             print("load model failed")
             return
-        print(m.info)
+        # print(m.info)
 
         # 创建一张 320*320 的float32的图片
         # img = np.ones((1, 320, 320, 3), dtype=np.float32)
-        total_iter = 100
+        total_iter = 10
         total_time = 0
-        try:
-            img = Image.open(r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\20250925\Fov\fod-test-20250909-AA_fov_17_0.jpg")
-        except Exception as e:
-            print(e)
-            img = np.zeros((640,640,3), dtype=np.float32)
+        img = Image.open(r"H:\dataset\obb\all\images\test\byd##4.0Dual##20230510084428##fov_122_0.jpg")
         print(m.info["inputs"][0].name, m.info["inputs"][0].dtype, m.info["inputs"][0].shape, m.info["inputs"][0].size)
         img = WarpAffineNorm2NCHW(model_input=m.info["inputs"][0]).run(np.array(img))
         print(img.shape)
@@ -81,96 +77,25 @@ def infer_trt_model(path):
             # img = np.random.rand(1, 320, 320, 3).astype(np.float32)
             # reshape (1, 320, 320, 3) -> (1, 3, 320, 320)
             cur_time = time.perf_counter()
-            out = m({"images": img.data}, in_img_to_hook=img.data)
+            out = m({
+                "images": img.data
+            }, in_img_to_hook=img.data)
             end_time = time.perf_counter()
             #print(f"trt time: {end_time - cur_time}")
             total_time += end_time - cur_time
-            # for k, v in out.items():
-            #     print(f"{i} {k}: {v.shape}")
+            for k, v in out.items():
+                print(f"{i} {k}: {v.shape}")
         print(f"trt avg time: {total_time / total_iter}")
 
-
-def infer_trt_model_image_dir(path, image_dir):
-    with TensorRTModel(
-        path,
-        config=Config(
-            explicit_batch=True,
-            use_fp16=True,
-            hooks={
-                "on_trt_infer_before": [
-                    # hook1
-                ],
-                "on_trt_infer_after": [
-
-                ]
-            }
-        ).dic
-    ) as m:
-        if m is None:
-            print("load model failed")
-            return
-        print(m.info)
-
-        # 创建一张 320*320 的float32的图片
-        # img = np.ones((1, 320, 320, 3), dtype=np.float32)
-        total_iter = 10
-        total_time = 0
-        image_paths = [os.path.join(image_dir, d) for d in os.listdir(image_dir) if d.endswith(tuple(IMG_FORMATS))]
-        print(m.info["inputs"][0].name, m.info["inputs"][0].dtype, m.info["inputs"][0].shape,
-              m.info["inputs"][0].size)
-        # img = np.ascontiguousarray(img.transpose((0, 3, 1, 2)))
-        for i, p in enumerate(image_paths):
-            # 随机创建
-            # img = np.random.rand(1, 320, 320, 3).astype(np.float32)
-            # reshape (1, 320, 320, 3) -> (1, 3, 320, 320)
-            try:
-                img = Image.open(p)
-                img = WarpAffineNorm2NCHW(model_input=m.info["inputs"][0]).run(np.array(img))
-                cur_time = time.perf_counter()
-                out = m({
-                    "images": img.data
-                }, in_img_to_hook=img.data)
-                end_time = time.perf_counter()
-                #print(f"trt time: {end_time - cur_time}")
-            except Exception as e:
-                print(f"error: {e}, {p}")
-            total_time += end_time - cur_time
-            # for k, v in out.items():
-            #     print(f"{i} {k}: {v.shape}")
-        print(f"trt avg time: {total_time / total_iter}s")
-
-
 def test_trt_nms_model():
-    TensorRTModel.trt_plugin()
     # infer_trt_model(trt_Path)
     # infer_trt_model(trt_NMS_Path)
-    image_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.4\train_split\images\test"
-    onnx_Path1 = (r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\model\best-v4.5.2-base.onnx")
-    onnx_Path2 = (r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\model\best-v4.5.2-nms.onnx")
-    onnx_Path3 = (r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\model\best-v4.5.2-post6.onnx")
-    onnx_Path3 = (r"E:\python_project\ultralytics\project\BUBBLE\BUBBLE\20250609_083643\weights\export_plugin\best.onnx")
-    onnx_Path3 = (r"E:\python_project\ultralytics\project\BUBBLE\BUBBLE\20250609_083643\weights\best.onnx")
-    b = time.perf_counter()
-    # infer_trt_model(onnx_Path1)
-    # infer_trt_model(onnx_Path2)
-    # infer_trt_model(onnx_Path3)
-    e = time.perf_counter()
-    total_time = e - b
-    print(f"trt gen time: {total_time}")
 
-    trt_Path1 = (r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\model\best-v4.5.2-base.trt")
-    trt_Path2 = (r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\model\best-v4.5.2-nms.trt")
-    trt_Path3 = (r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.5\model\best-v4.5.2-post6.trt")
-    trt_Path3 = (r"E:\python_project\ultralytics\project\BUBBLE\BUBBLE\20250609_083643\weights\export_plugin\best.trt")
-    trt_Path4 = (r"E:\python_project\ultralytics\project\BUBBLE\BUBBLE\20250609_083643\weights\best.trt")
+    onnx_Path1 = (r"G:\project\AITools\tests\model\best-v4.5.2-base.onnx")
+    onnx_Path2 = (r"G:\project\AITools\tests\model\best-v4.5.2-nms.onnx")
+    trt_Path1 = (r"G:\project\AITools\tests\model\best-v4.5.2-base.trt")
+    trt_Path2 = (r"G:\project\AITools\tests\model\best-v4.5.2-nms.trt")
+    onnx_Path3 = (r"H:\model\yolo11n-p6-seg.trt")
     # infer_trt_model(trt_Path1)
     # infer_trt_model(trt_Path2)
-    infer_trt_model(trt_Path3)
-    infer_trt_model(trt_Path4)
-    # infer_trt_model_image_dir(trt_Path1, image_dir)
-    # infer_trt_model_image_dir(trt_Path3, image_dir)
-    # infer_trt_model_image_dir(trt_Path3, image_dir)
-
-
-if __name__ == '__main__':
-    test_trt_nms_model()
+    infer_trt_model(onnx_Path3)

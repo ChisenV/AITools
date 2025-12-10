@@ -12,3 +12,6 @@ if sys.version_info < (3, 11):
         _generate_next_value_ = _generate_next_value_
 
     __all__.append("StrEnum")
+else:
+    from enum import StrEnum
+    __all__.append("StrEnum")
