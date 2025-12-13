@@ -605,7 +605,7 @@ def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=Tr
             with open(os.path.join(save_dir, file_name), "w") as f:
                 for i, obj in enumerate(objs):
                     cla_id = voc_dataset.categories(obj['name'])
-                    if cla_id == None:
+                    if cla_id is None:
                         continue
                     if voc_dataset.task == "det":
                         bbox = obj['bndbox']

@@ -60,13 +60,14 @@ def _validate_indices(indices, obj: Sized) -> list:
 
 
 class DoNotReadImage:
-    """禁用梯度计算的上下文管理器"""
+    """A context manager for disabling image reading"""
 
     def __init__(self, d):
         self.prev = d
         self.record_read_image = d.is_read_image
 
     def __enter__(self):
+        self.record_read_image = self.prev.is_read_image
         self.prev._read_image = False
         return self
 
@@ -87,16 +88,16 @@ class DoNotReadImage:
 @DATASETS.register_component
 class OCRDatasetV2(IterableDataset):
     def __init__(
-            self,
-            root: Union[str, List[str]] = None,
-            with_image: bool = True,
-            with_label: bool = False,
-            *,
-            read_image: bool = False,
-            transformers=None,
-            subject_to="image",
-            label_file="Label.txt",
-            **kwargs
+        self,
+        root: Union[str, List[str]] = None,
+        with_image: bool = True,
+        with_label: bool = False,
+        *,
+        read_image: bool = False,
+        transformers=None,
+        subject_to="image",
+        label_file="Label.txt",
+        **kwargs
     ):
         """
         Args:
@@ -839,14 +840,14 @@ class OCRCLSDatasetV2(OCRDatasetV2):
 
 
 def dump_ocr_dataset(
-        dataset: OCRDatasetV2,
-        destination: str,
-        image_file_op: str = "copy",
-        custom_image_label_op: Callable = None,
-        label_file_name: str = "Label.txt",
-        label_file_encoding="utf-8",
-        overwriting: bool = False,
-        tqdm_enable: bool = True
+    dataset: OCRDatasetV2,
+    destination: str,
+    image_file_op: str = "copy",
+    custom_image_label_op: Callable = None,
+    label_file_name: str = "Label.txt",
+    label_file_encoding="utf-8",
+    overwriting: bool = False,
+    tqdm_enable: bool = True
 ):
     """
     Dump dataset to a new directory.
@@ -1089,7 +1090,7 @@ class SeparateDataset(IterableDataset):
         root: Union[str, Path, List[Union[str, Path]]] = None,
         *,
         with_image: bool = True,
-        with_label: bool = False,
+        with_label: bool = True,
         image_dirname: str = "images",
         label_dirname: str = "labels",
         task: str = "det",
@@ -1151,6 +1152,9 @@ class SeparateDataset(IterableDataset):
             is_name2id = all(isinstance(k, str) for k in categories.keys())
             self._cate_id2name = {v: k for k, v in categories.items()} if is_name2id else categories
             self._cate_name2id = categories if is_name2id else {v: k for k, v in categories.items()}
+
+        with DoNotReadImage(self):
+            self.sample_info = self.collect_sample_info() if self._with_label else None
 
     @property
     def with_image(self):
@@ -1441,6 +1445,9 @@ class SeparateDataset(IterableDataset):
     def auto_collect_categories(self):
         raise NotImplementedError
 
+    def collect_sample_info(self):
+        raise NotImplementedError
+
 
 class YOLODataset(SeparateDataset):
 
@@ -1568,6 +1575,19 @@ class YOLODataset(SeparateDataset):
                     categories.add(la[0])
         self._cate_id2name = {cid: str(cid) for cid in categories}
         self._cate_name2id = {v: k for k, v in self._cate_id2name.items()}
+
+    def collect_sample_info(self):
+        sample_info = dict()
+        for _, label_path in self:
+            if label_path and os.path.exists(label_path):
+                label = self._parse_label_file(label_path, fix_data=self.fix_bad_data)
+                for la in label:
+                    sample_info[
+                        self._cate_id2name.get(la[0], la[0])
+                    ] = sample_info.get(
+                        self._cate_id2name.get(la[0], la[0]), 0
+                    ) + 1
+        return sample_info
 
 
 def split(
@@ -1748,3 +1768,19 @@ class VOCDataset(SeparateDataset):
                     print("object is null")
         self._cate_id2name = {cid: name for cid, name in enumerate(categories)}
         self._cate_name2id = {v: k for k, v in self._cate_id2name.items()}
+
+    def collect_sample_info(self):
+        sample_info = dict()
+        for _, label_path in self:
+            if label_path and os.path.exists(label_path):
+                label = self._parse_label_file(label_path)["annotation"]
+                if "object" in label.keys():
+                    if isinstance(label["object"], list):
+                        for obj in label["object"]:
+                            sample_info[obj["name"]] = sample_info.get(obj["name"], 0) + 1
+                    else:
+                        if "name" in label["object"].keys():
+                            sample_info[obj["name"]] = sample_info.get(obj["name"], 0) + 1
+                else:
+                    print("object is null")
+        return sample_info
