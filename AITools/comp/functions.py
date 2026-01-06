@@ -94,7 +94,7 @@ def imwrite(filename: Union[str, Path], img: np.ndarray, params=None):
 
 
 @FUNCTIONS.register_component
-def imshow(winname: str, mat: np.ndarray, delay: int = None):
+def imshow(winname: str, mat: np.ndarray, delay: int = None, scale: float = 1.0):
     """
     Displays an image in the specified window.
 
@@ -103,8 +103,27 @@ def imshow(winname: str, mat: np.ndarray, delay: int = None):
         mat (np.ndarray): Image to be shown.
         delay (int, optional): Delay in milliseconds. If 0, the window will stay open until the user closes it.
         If negative, the window will stay open indefinitely. Defaults to None.
+        scale (float, optional): Scale factor for the image. Defaults to 1.0.
     """
-    _imshow(winname.encode("unicode_escape").decode(), mat)
+    if mat is None:
+        return
+
+    if scale != 1.0:
+        h, w = mat.shape[:2]
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+
+        if new_w <= 0 or new_h <= 0:
+            raise ValueError("scale is too small, resulting image size is invalid")
+
+        mat_show = cv2.resize(
+            mat,
+            (new_w, new_h),
+            interpolation=cv2.INTER_LINEAR if scale > 1.0 else cv2.INTER_AREA
+        )
+    else:
+        mat_show = mat
+    _imshow(winname.encode("unicode_escape").decode(), mat_show)
     if delay is not None:
         _waitkey(delay)
 
