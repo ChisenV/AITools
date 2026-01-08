@@ -16,7 +16,7 @@ if os.path.exists('README.md'):
         long_description = f.read()
 
 setup(
-    name="AITools",
+    name="aitools",
     version=version,
     description="A Python package for AI model deployment and inference and dataset process",
     long_description=long_description,

@@ -67,6 +67,7 @@ class DoNotReadImage:
         self.record_read_image = d.is_read_image
 
     def __enter__(self):
+        self.record_read_image = self.prev.is_read_image
         self.prev._read_image = False
         return self
 
