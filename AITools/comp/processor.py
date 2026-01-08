@@ -12,7 +12,6 @@ from AITools.comp import functions as F
 from AITools.comp.dataset import OCRDatasetV2, YOLODataset
 from AITools.core.manager import ComponentManager
 from AITools.utils.plotting import Colors
-from AITools.utils.property import threaded
 
 PROCESSORS = ComponentManager("Processors")
 
@@ -587,7 +586,7 @@ class CropImages(BaseProcessor):
                     continue
                 if len(contour) >= 3:  # 有效多边形至少需要3个点
                     # 转换为相对坐标
-                    rel_points = contour.squeeze().astype(np.float32) / [cropped_h, cropped_w]
+                    rel_points = contour.squeeze().astype(np.float32) / [cropped_w, cropped_h]
                     normalized = [f"{p:.6f}" for point in rel_points.tolist() for p in point]
                     new_lines.append(f"{class_id} " + " ".join(normalized))
             class_mask[:, :] = 0

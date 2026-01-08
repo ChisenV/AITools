@@ -1270,14 +1270,15 @@ def test_vis_coco2_ds():
 
 
 def test_vis_coco2_ds2():
-    dir_name = "slice_image_train_crop"
+    dir_name = "slice_image_train"
     json_file = r"train_2000_025"
     dataset_dir = Path(rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}")
-    destination = rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}_split"
+    destination = rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}_new"
     categories = convert_coco2yolo(
         rf"E:\python_ai_dataset\COCOtoSLICE-S1-2000\{dir_name}\{json_file}.json",
         dataset_dir,
     )
+    generate_yolo_empty_labels(dataset_dir / 'images', dataset_dir / 'labels')
     dy = YOLODataset(
         dataset_dir,
         image_dirname="images",
@@ -1286,13 +1287,59 @@ def test_vis_coco2_ds2():
         task="det",
         categories=categories,
     )
-    subset = dy.split(ratio=[0.5,0.3,0.2], seed=20251210)
-    for i, (name, s) in enumerate(subset.items()):
-        sub_dy = dy.subset(s)
-        dump_yolo_dataset(sub_dy,
-                          destination=destination,
-                          sub_dirname=name)
-        convert_yolo2coco(sub_dy, Path(destination) / f"{json_file}_{name}.json")
+    print(dy.categories())
+    print(dy.sample_info)
+    new_cate_tmp = {
+        dy.categories(name): name for name, num in dy.sample_info.items() if num > 500
+    }
+    print(new_cate_tmp)
+    new_cate_n2i = {n: i for i, n in enumerate(sorted(new_cate_tmp.values()))}
+    print(new_cate_n2i)
+    old2new = {dy.categories(n): i_n for n, i_n in new_cate_n2i.items()}
+
+    def la_op(old_path, new_path):
+        with open(old_path, "r") as f:
+            lines = f.readlines()
+        try:
+            f = open(new_path, 'w', encoding='utf-8')
+            for line_num, line in enumerate(lines, 1):
+                parts = line.split()
+                if not parts:
+                    continue
+
+                class_id = int(parts[0])
+                if class_id not in old2new.keys():
+                    continue
+                values = list(map(float, parts[1:]))
+                validate_normalized_coords(values, line_num, True)
+                values_str = ' '.join(map(str, values))
+                new_line = f"{old2new[class_id]} {values_str}\n"
+                f.write(new_line)
+        except ValueError as e:
+            raise e
+        finally:
+            f.close()
+
+    dump_yolo_dataset(
+        dy,
+        destination=destination,
+        label_file_op=la_op
+    )
+    generate_yolo_empty_labels(Path(destination) / 'images', Path(destination) / 'labels')
+    ndy = YOLODataset(
+        destination,
+        categories=new_cate_n2i,
+        task="det",
+    )
+    convert_yolo2coco(ndy, Path(destination) / f"{json_file}_less_cls.json")
+    VisualizeYOLODataset(ndy, Path(destination) / 'vis')()
+    # subset = dy.split(ratio=[0.5,0.3,0.2], seed=20251210)
+    # for i, (name, s) in enumerate(subset.items()):
+    #     sub_dy = dy.subset(s)
+    #     dump_yolo_dataset(sub_dy,
+    #                       destination=destination,
+    #                       sub_dirname=name)
+    #     convert_yolo2coco(sub_dy, Path(destination) / f"{json_file}_{name}.json")
     # VisualizeYOLODataset(dy, dataset_dir / 'vis')()
 
 
@@ -1300,17 +1347,17 @@ def test_convert_coco2yolo():
     dataset = r"E:\python_ai_dataset\COCOtoSLICE-S1-2000\VOC"
     d = VOCDataset(
         dataset,
-        with_label=True,
         task='obb',
     )
     print(len(d), d.task, d.is_read_image)
     print(d.categories())
+    print(d.sample_info)
     convert_voc2yolo(d, Path(dataset) / 'labels')
     dy = YOLODataset(
         dataset,
         categories=d.categories(),
-        with_label=True,
-        task='obb'
+        task='obb',
+        fix_bad_data=True
     )
     VisualizeYOLODataset(dy, Path(dataset) / 'vis')()
     convert_yolo2coco(dy, Path(dataset) / 'train.json')
