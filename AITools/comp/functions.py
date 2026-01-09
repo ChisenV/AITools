@@ -598,6 +598,13 @@ def img2label_paths(img_paths, image_dirname="images", label_dirname="labels", p
 
 @FUNCTIONS.register_component
 def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=True):
+    """
+    Args:
+        voc_dataset:
+        save_dir: the directory to save the converted labels
+        label_postfix:
+        empty_label:
+    """
     if not voc_dataset.with_label:
         print("voc_dataset without label")
         return
