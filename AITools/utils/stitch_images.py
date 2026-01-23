@@ -1,5 +1,7 @@
 import argparse
+import copy
 import os.path
+import random
 import shutil
 from pathlib import Path
 
@@ -390,7 +392,16 @@ def place_image_on_canvas(
         cv2.putText(canvas, name, (x, y + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
 
-def stitch_images(data_dir, save_dir, canvas_size, categories, format="png", rename=True, visualize=True):
+def stitch_images(
+    data_dir,
+    save_dir,
+    canvas_size,
+    categories,
+    format="png",
+    rename=True,
+    visualize=True,
+    shuffle=True
+):
     basename = os.path.basename(save_dir)
     save_image_dir = os.path.join(save_dir, "images")
     save_label_dir = os.path.join(save_dir, "labels")
@@ -403,8 +414,12 @@ def stitch_images(data_dir, save_dir, canvas_size, categories, format="png", ren
                       with_label=True,
                       task="seg",
                       categories=categories,
-                      read_image=False)
-    canvases = stitch_images_to_canvas(dsy.images, canvas_size)
+                      read_image=False,
+                      fix_bad_data=True)
+    images = copy.deepcopy(dsy.images)
+    if shuffle:
+        random.shuffle(images)
+    canvases = stitch_images_to_canvas(images, canvas_size)
 
     for canvas_id, canvas in canvases.items():
         current_canvas = np.zeros((canvas_size, canvas_size, 3), dtype=np.uint8)
