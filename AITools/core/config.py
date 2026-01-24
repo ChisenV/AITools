@@ -196,6 +196,8 @@ class Config(object):
 
             try:
                 value = literal_eval(value)
+                if isinstance(value, tuple):
+                    value = list(value)
             except (ValueError, SyntaxError):
                 pass  # Preserve string format
 
