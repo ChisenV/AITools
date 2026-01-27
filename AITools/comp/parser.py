@@ -2,13 +2,13 @@ from abc import ABC
 from pathlib import Path
 from typing import Dict, Any, List, Union
 
-__all__ = ['YAMLParser', 'JSONParser', 'XMLParser']
+__all__ = ['YAMLParser', 'YMLParser', 'JSONParser', 'XMLParser']
 
 from AITools.core.manager import ComponentManager
 
 PARSERS = ComponentManager("parsers")
 
-# TODO: load by string
+
 class Parser(ABC):
     """Parser base class"""
     _SUPPORTED_EXTENSIONS = []
@@ -28,18 +28,22 @@ class Parser(ABC):
         """Dump data to file"""
         raise NotImplementedError
 
-    def loads(self):
-        pass
+    @classmethod
+    def loads(cls, **kwargs) -> Dict[str, Any]:
+        """Load data from string"""
+        raise NotImplementedError
 
-    def dumps(self):
-        pass
+    @classmethod
+    def dumps(cls, **kwargs) -> str:
+        """Dump data to string"""
+        raise NotImplementedError
 
 
 # --------------------- YAML plugin implement ---------------------
 @PARSERS.register_component
 class YAMLParser(Parser):
     """YAML format plugin"""
-    _SUPPORTED_EXTENSIONS = [".yaml", ".yml"]
+    _SUPPORTED_EXTENSIONS = [".yaml", ".yml", "yaml", "yml"]
 
     @classmethod
     def load(cls, path: Union[str, Path], encoding='utf-8', **kwargs) -> Dict[str, Any]:
@@ -48,43 +52,105 @@ class YAMLParser(Parser):
             return yaml.safe_load(f) or {}
 
     @classmethod
+    def loads(cls, data: str, **kwargs) -> Dict[str, Any]:
+        import yaml
+        return yaml.safe_load(data) or {}
+
+    @classmethod
     def dump(cls, data: Dict[str, Any], path: Union[str, Path], encoding='utf-8', **kwargs) -> None:
         import yaml
+        if 'indent' not in kwargs:
+            kwargs['indent'] = None
         with open(path, 'w', encoding=encoding) as f:
-            yaml.safe_dump(data, f, allow_unicode=True, indent=kwargs.get('indent', 2))
+            yaml.safe_dump(data, f, allow_unicode=True, **kwargs)
+
+    @classmethod
+    def dumps(cls, data: Dict[str, Any], **kwargs) -> str:
+        import yaml
+        if 'indent' not in kwargs:
+            kwargs['indent'] = None
+        if 'allow_unicode' not in kwargs:
+            kwargs['allow_unicode'] = True
+        if 'encoding' not in kwargs:
+            kwargs['encoding'] = 'utf-8'
+        return yaml.safe_dump(data, **kwargs)
 
 
 # --------------------- JSON plugin implement ---------------------
 @PARSERS.register_component
 class JSONParser(Parser):
     """JSON format plugin"""
-    _SUPPORTED_EXTENSIONS = [".json"]
+    _SUPPORTED_EXTENSIONS = [".json", "json"]
 
     @classmethod
     def load(cls, path: Union[str, Path], encoding='utf-8', **kwargs) -> Dict[str, Any]:
         import json
         with open(path, 'r', encoding=encoding) as f:
-            return json.load(f) or {}
+            return json.load(f, **kwargs) or {}
+
+    @classmethod
+    def loads(cls, data: Union[str, bytes, bytearray], **kwargs) -> Dict[str, Any]:
+        import json
+        return json.loads(data, **kwargs) or {}
 
     @classmethod
     def dump(cls, data: Dict[str, Any], path: Union[str, Path], encoding='utf-8', **kwargs) -> None:
         import json
+        if 'indent' not in kwargs:
+            kwargs['indent'] = 2
         with open(path, 'w', encoding=encoding) as f:
-            json.dump(data, f, ensure_ascii=False, indent=kwargs.get('indent', 2))
+            json.dump(data, f, ensure_ascii=False, **kwargs)
+
+    @classmethod
+    def dumps(cls, data: Dict[str, Any], **kwargs) -> str:
+        import json
+        if 'indent' not in kwargs:
+            kwargs['indent'] = None
+        return json.dumps(data, ensure_ascii=False, **kwargs)
 
 
 # --------------------- XML plugin implement ---------------------
 @PARSERS.register_component
 class XMLParser(Parser):
     """XML format plugin (attribute/element/text conversion)"""
-    _SUPPORTED_EXTENSIONS = [".xml"]
+    _SUPPORTED_EXTENSIONS: list = [".xml", "xml"]
+    fmt_att2key: str = '_{}_',
+    unlabeled_text_key: str = '#content',
+
+    from xml.etree import ElementTree as ET
+
+    @staticmethod
+    def parse_element(
+        element: ET.Element,
+        fmt_att2key: str = fmt_att2key,
+        unlabeled_text_key: str = unlabeled_text_key,
+    ) -> Dict:
+        result = {}
+        if element.attrib:
+            result.update({fmt_att2key.format(k): v for k, v in element.attrib.items()})
+        for child in element:
+            child_data = XMLParser.parse_element(child, fmt_att2key, unlabeled_text_key)
+            key = child.tag
+            if key in result:
+                if not isinstance(result[key], list):
+                    result[key] = [result[key]]
+                result[key].append(child_data)
+            else:
+                result[key] = child_data
+        text = element.text.strip() if element.text else ""
+        if text:
+            if len(result) > 0:
+                result[unlabeled_text_key] = XMLParser.auto_convert(text)
+            else:
+                result = XMLParser.auto_convert(text)
+        return result
 
     @classmethod
     def load(
         cls,
         path: Union[str, Path],
-        fmt_att2key: str = '_{}_',
-        unlabeled_text_key: str = '#text',
+        fmt_att2key: str = fmt_att2key,
+        unlabeled_text_key: str = unlabeled_text_key,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -102,38 +168,36 @@ class XMLParser(Parser):
 
         from xml.etree import ElementTree as ET
 
-        def parse_element(element: ET.Element) -> Dict:
-            result = {}
-            if element.attrib:
-                result.update({fmt_att2key.format(k): v for k, v in element.attrib.items()})
-            for child in element:
-                child_data = parse_element(child)
-                key = child.tag
-                if key in result:
-                    if not isinstance(result[key], list):
-                        result[key] = [result[key]]
-                    result[key].append(child_data)
-                else:
-                    result[key] = child_data
-            text = element.text.strip() if element.text else ""
-            if text:
-                if len(result) > 0:
-                    result[unlabeled_text_key] = text
-                else:
-                    result = cls.auto_convert(text)
-            return result
-
         tree = ET.parse(path)
         root = tree.getroot()
-        return {root.tag: parse_element(root)}
+        return {
+            root.tag: cls.parse_element(root, fmt_att2key, unlabeled_text_key)
+        }
+
+    @classmethod
+    def loads(
+        cls,
+        data: Union[str, bytes, bytearray],
+        fmt_att2key: str = fmt_att2key,
+        unlabeled_text_key: str = unlabeled_text_key,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Load the data from a string
+        """
+        from xml.etree import ElementTree as ET
+        root = ET.fromstring(data)
+        return {
+            root.tag: cls.parse_element(root, fmt_att2key, unlabeled_text_key)
+        }
 
     @classmethod
     def dump(
         cls,
         data: Dict[str, Any],
         path: Union[str, Path],
-        fmt_att2key: str = '_{}_',
-        unlabeled_text_key: str = '#text',
+        fmt_att2key: str = fmt_att2key,
+        unlabeled_text_key: str = unlabeled_text_key,
         encoding='utf-8',
         indent='\t',
         **kwargs
@@ -147,8 +211,28 @@ class XMLParser(Parser):
             unlabeled_text_key: unlabeled text key, e.g. #text
             encoding: encoding
             indent: indent
-            **kwargs:
         """
+        pretty_str = cls.dumps(
+            data,
+            fmt_att2key=fmt_att2key,
+            unlabeled_text_key=unlabeled_text_key,
+            encoding=encoding,
+            indent=indent,
+            **kwargs
+        )
+        with open(path, "w") as f:
+            f.write(pretty_str)
+
+    @classmethod
+    def dumps(
+        cls,
+        data: Dict[str, Any],
+        fmt_att2key: str = fmt_att2key,
+        unlabeled_text_key: str = unlabeled_text_key,
+        encoding='utf-8',
+        indent: Union[str, None] = '\t',
+        **kwargs
+    ) -> str:
         cls.validate_fmt_only_one_brace(fmt_att2key)
 
         import re
@@ -187,14 +271,12 @@ class XMLParser(Parser):
 
         root_tag = next(iter(data))
         root = build_element(None, root_tag, data[root_tag])
-        if indent != '':
-            rough_str = ET.tostring(root, encoding=encoding, method="xml")
+        rough_str = ET.tostring(root, encoding=encoding, method="xml", xml_declaration=True)
+        if indent is not None:
             dom = minidom.parseString(rough_str)
             pretty_str = dom.toprettyxml(indent=indent, encoding=encoding)
-            with open(path, "wb") as f:
-                f.write(pretty_str)
-        else:
-            ET.ElementTree(root).write(path, encoding=encoding, xml_declaration=True)
+            return pretty_str.decode(encoding)
+        return rough_str.decode(encoding)
 
     @staticmethod
     def auto_convert(text: str) -> Any:
@@ -216,7 +298,7 @@ class XMLParser(Parser):
         Verify the validity of the fmt_att2key format string
         request:
             - Must contain and only a pair of consecutive `{}`
-            - `{`'` must come before `}`
+            - `{` must come before `}`
         """
         # Check the number of '{}' pairs
         if fmt.count("{") != 1 or fmt.count("}") != 1:
@@ -231,3 +313,6 @@ class XMLParser(Parser):
 
         if left_idx >= right_idx:
             raise ValueError(f"Invalid fmt_att2key: '{fmt}'. '{{' must come before '}}'")
+
+
+YMLParser = YAMLParser
