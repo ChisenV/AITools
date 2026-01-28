@@ -61,8 +61,10 @@ class YAMLParser(Parser):
         import yaml
         if 'indent' not in kwargs:
             kwargs['indent'] = None
+        if 'allow_unicode' not in kwargs:
+            kwargs['allow_unicode'] = True
         with open(path, 'w', encoding=encoding) as f:
-            yaml.safe_dump(data, f, allow_unicode=True, **kwargs)
+            yaml.safe_dump(data, f, **kwargs)
 
     @classmethod
     def dumps(cls, data: Dict[str, Any], **kwargs) -> str:
@@ -73,7 +75,7 @@ class YAMLParser(Parser):
             kwargs['allow_unicode'] = True
         if 'encoding' not in kwargs:
             kwargs['encoding'] = 'utf-8'
-        return yaml.safe_dump(data, **kwargs)
+        return yaml.safe_dump(data, **kwargs).decode(kwargs['encoding'])
 
 
 # --------------------- JSON plugin implement ---------------------
@@ -98,15 +100,19 @@ class JSONParser(Parser):
         import json
         if 'indent' not in kwargs:
             kwargs['indent'] = 2
+        if 'ensure_ascii' not in kwargs:
+            kwargs['ensure_ascii'] = False
         with open(path, 'w', encoding=encoding) as f:
-            json.dump(data, f, ensure_ascii=False, **kwargs)
+            json.dump(data, f, **kwargs)
 
     @classmethod
     def dumps(cls, data: Dict[str, Any], **kwargs) -> str:
         import json
         if 'indent' not in kwargs:
             kwargs['indent'] = None
-        return json.dumps(data, ensure_ascii=False, **kwargs)
+        if 'ensure_ascii' not in kwargs:
+            kwargs['ensure_ascii'] = False
+        return json.dumps(data, **kwargs)
 
 
 # --------------------- XML plugin implement ---------------------
@@ -114,8 +120,8 @@ class JSONParser(Parser):
 class XMLParser(Parser):
     """XML format plugin (attribute/element/text conversion)"""
     _SUPPORTED_EXTENSIONS: list = [".xml", "xml"]
-    fmt_att2key: str = '_{}_',
-    unlabeled_text_key: str = '#content',
+    fmt_att2key: str = "_{}_"
+    unlabeled_text_key: str = "#content"
 
     from xml.etree import ElementTree as ET
 
