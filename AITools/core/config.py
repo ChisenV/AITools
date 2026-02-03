@@ -35,17 +35,17 @@ class Config(object):
     """
 
     def __init__(
-            self,
-            path: Union[str, Path] = None,
-            opts: Optional[list] = None,
-            *,
-            cfg_name: str = None,
-            cfg_parser: Optional[Type[ParserPlugin]] = None,
-            cfg_base_key: str = BASE_KEY,
-            cfg_inherit_key: str = INHERIT_KEY,
-            cfg_type_key: str = TYPE_KEY,
-            cfg_strict_mode: bool = False,
-            **kwargs
+        self,
+        path: Union[str, Path] = None,
+        opts: Optional[list] = None,
+        *,
+        cfg_name: str = None,
+        cfg_parser: Optional[Type[ParserPlugin]] = None,
+        cfg_base_key: str = BASE_KEY,
+        cfg_inherit_key: str = INHERIT_KEY,
+        cfg_type_key: str = TYPE_KEY,
+        cfg_strict_mode: bool = False,
+        **kwargs
     ):
         """
         Args:
@@ -66,7 +66,7 @@ class Config(object):
 
         # Merge all configuration sources (base class < file < kwargs < opts)
         merged = self._load_config_file(path) if path else {}  # Load from file (if any)
-        merged = self._deep_merge(merged, kwargs)
+        merged = self._deep_merge_v2(merged, kwargs)
         merged = self._update_with_cli_opts(merged, opts or [])
         self._cfg = copy.deepcopy(merged)
 
@@ -99,7 +99,7 @@ class Config(object):
 
     def update(self, config: Union['Config', Dict[str, Any]]) -> 'Config':
         """Update the configuration"""
-        self._cfg = self._deep_merge(self._cfg, config if isinstance(config, dict) else config.dic)
+        self._cfg = self._deep_merge_v2(self._cfg, config if isinstance(config, dict) else config.dic)
         return self
 
     @property
@@ -156,15 +156,15 @@ class Config(object):
                     cfg_parser=self._parser,
                     cfg_strict_mode=self._strict_mode
                 ).dic
-                config = self._deep_merge(base_config, config)
+                config = self._deep_merge_v2(base_config, config)
 
         return config
 
     def _deep_merge(
-            self,
-            base: Dict[str, Any],
-            update: Dict[str, Any],
-            inherited: bool = True
+        self,
+        base: Dict[str, Any],
+        update: Dict[str, Any],
+        inherited: bool = True
     ) -> Dict[str, Any]:
         """Recursively merge two dictionaries"""
         merged = copy.deepcopy(base) if update.get(self.cfg_inherit_key, inherited) else {}
@@ -178,6 +178,41 @@ class Config(object):
                 merged[key] = self._deep_merge(merged[key], val)
             else:
                 merged[key] = copy.deepcopy(val)
+
+        return merged
+
+    def _deep_merge_v2(
+        self,
+        base: Dict[str, Any],
+        update: Dict[str, Any],
+        inherited: bool = True
+    ) -> Dict[str, Any]:
+        """Loop implementation: Recursively merge two dictionaries"""
+
+        merged = copy.deepcopy(base) if update.get(self.cfg_inherit_key, inherited) else {}
+
+        # 使用队列处理所有需要合并的字典对
+        from collections import deque
+        queue = deque()
+        queue.append((merged, update, []))  # (target_dict, source_dict, key_path)
+
+        while queue:
+            target, source, key_path = queue.popleft()
+
+            for key, value in source.items():
+                # Skip special keys
+                if key in [self.cfg_base_key, self.cfg_inherit_key, self.cfg_type_key]:
+                    continue
+
+                # Key check in strict mode
+                if self._strict_mode and target and key not in target:
+                    full_path = '.'.join(key_path + [key]) if key_path else key
+                    raise KeyError(f"Unexpected config key: {full_path}")
+
+                if isinstance(value, dict) and key in target and isinstance(target[key], dict):
+                    queue.append((target[key], value, key_path + [key]))
+                else:
+                    target[key] = copy.deepcopy(value)
 
         return merged
 
@@ -239,10 +274,10 @@ class Config(object):
 
 
 def dump(
-        config: Union[Config, dict],
-        path: str,
-        parser: Optional[ParserPlugin] = None,
-        overwrite: bool = True
+    config: Union[Config, dict],
+    path: str,
+    parser: Optional[ParserPlugin] = None,
+    overwrite: bool = True
 ) -> None:
     """
     Save the current configuration to a file

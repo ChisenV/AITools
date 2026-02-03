@@ -61,10 +61,10 @@ class ComponentManager:
     """
 
     def __init__(
-            self,
-            name: Optional[str] = None,
-            comp_name_getter: Optional[Callable[[Union[type, Callable]], str]] = None,
-            append_global: bool = True
+        self,
+        name: Optional[str] = None,
+        comp_name_getter: Optional[Callable[[Union[type, Callable]], str]] = None,
+        append_global: bool = True
     ):
         self._components_dict: Dict[str, Union[type, Callable]] = {}
         self._name = name
@@ -104,9 +104,9 @@ class ComponentManager:
         self._name = str(value)
 
     def _add_single_component(
-            self,
-            component: Union[type, Callable],
-            allow_overwrite: bool = False
+        self,
+        component: Union[type, Callable],
+        allow_overwrite: bool = False
     ):
         """
         Add a single component into the corresponding manager.
@@ -138,9 +138,9 @@ class ComponentManager:
         self._components_dict[component_name] = component
 
     def register_component(
-            self,
-            components: Union[type, Callable, List[Union[type, Callable]], Tuple[Union[type, Callable], ...]] = None,
-            allow_overwrite: bool = False
+        self,
+        components: Union[type, Callable, List[Union[type, Callable]], Tuple[Union[type, Callable], ...]] = None,
+        allow_overwrite: bool = False
     ):
         """
         Add component(s) into the corresponding manager.
@@ -176,8 +176,8 @@ class ComponentManager:
 
 
 def get_component_manager(
-        name: str,
-        default=ComponentManager(append_global=False)
+    name: str,
+    default=ComponentManager(append_global=False)
 ) -> Optional[ComponentManager]:
     for m in COMPONENT_MANAGERS:
         if m.name == name:

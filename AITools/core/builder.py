@@ -15,13 +15,13 @@ class Builder(object):
     """
 
     def __init__(
-            self,
-            config: Union[Config, Dict[str, Any]] = None,
-            *,
-            components: Optional[list] = None,
-            name: str = None,
-            mark: str = TYPE_KEY,
-            post_build_hooks: Optional[list[Callable[[Any, Dict], None]]] = None
+        self,
+        config: Union[Config, Dict[str, Any]] = None,
+        *,
+        components: Optional[list] = None,
+        name: str = None,
+        mark: str = TYPE_KEY,
+        post_build_hooks: Optional[list[Callable[[Any, Dict], None]]] = None
     ):
         """
         Initialize the builder with a configuration dictionary and a list of component classes.

@@ -311,7 +311,7 @@ def plot_box_and_text_v2(image, box, text: str = '', lw=None, text_lw_scale=0.5,
         if box.shape[0] == 2:
             p1, p2 = box[0, :], box[1, :]
             cv2.rectangle(image, p1, p2, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
-        elif box.shape[0] >= 2:
+        elif box.shape[0] >= 3:
             p1 = box[0, :]
             cv2.polylines(image, [box], True, box_color, thickness=max(lw, 2), lineType=cv2.LINE_AA)
         else:

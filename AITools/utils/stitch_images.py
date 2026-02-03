@@ -165,8 +165,8 @@ def get_resize_transform(original_size, target_sizes=None):
 
 
 def stitch_images_to_canvas(
-        image_list: List[str],
-        canvas_size: int = 1280
+    image_list: List[str],
+    canvas_size: int = 1280
 ) -> dict:
     """
     优化后的图像拼接函数，在放置大图像后立即尝试填充小图像
@@ -281,9 +281,9 @@ def stitch_images_to_canvas(
 
 
 def find_best_placement(
-        grid: np.ndarray,
-        grid_units: int,
-        grid_size: int
+    grid: np.ndarray,
+    grid_units: int,
+    grid_size: int
 ) -> Optional[Tuple[int, int]]:
     """
     在网格中查找最佳放置位置
@@ -320,11 +320,11 @@ def find_best_placement(
 
 
 def evaluate_placement(
-        grid: np.ndarray,
-        row: int,
-        col: int,
-        grid_units: int,
-        grid_size: int
+    grid: np.ndarray,
+    row: int,
+    col: int,
+    grid_units: int,
+    grid_size: int
 ) -> float:
     """
     评估放置位置的质量，返回评分（越高越好）
@@ -372,11 +372,11 @@ def evaluate_placement(
 
 
 def place_image_on_canvas(
-        canvas: np.ndarray,
-        image: np.ndarray,
-        x: int,
-        y: int,
-        name: str = None
+    canvas: np.ndarray,
+    image: np.ndarray,
+    x: int,
+    y: int,
+    name: str = None
 ) -> None:
     """
     将图像放置在画布的指定位置

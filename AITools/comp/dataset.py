@@ -680,11 +680,11 @@ class OCRDatasetV2(IterableDataset):
         return new
 
     def sample(
-            self,
-            ratio: Union[float, Dict[Union[int, str], float]],
-            condition: Callable = None,
-            seed: int = None,
-            parallel: bool = False
+        self,
+        ratio: Union[float, Dict[Union[int, str], float]],
+        condition: Callable = None,
+        seed: int = None,
+        parallel: bool = False
     ) -> list[int]:
         """
         Stratified sampling by folder
