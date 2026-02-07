@@ -1,8 +1,11 @@
+import os
+
+os.environ["PATH"] = r"E:\thirdparty\TensorRT\TensorRT-10.10.0.31\lib;" + os.environ["PATH"]
+
 import os.path
 import random
 import shutil
 from pathlib import Path
-
 import cv2
 import numpy as np
 
@@ -10,7 +13,7 @@ from AITools import IMG_FORMATS
 from AITools.comp.dataset import *
 from AITools.comp.functions import *
 from AITools.comp.functions import convert_coco2yolo, rotate_image_around_point, generate_yolo_empty_labels, date_utils, \
-    convert_yolo2coco
+    convert_yolo2coco, sanitize_filename
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
 from AITools.utils.stitch_images import stitch_images
 
@@ -193,6 +196,7 @@ def OCRDatesetV2_sample_case1():
     #                if os.path.isdir(os.path.join(dst_dir, i))]
     # union_label(label_files, os.path.join(dst_dir, "Label.txt"))
 
+
 def OCRCLSDatesetV2_sample_case1():
     dst_dir = r"E:\python_ai_dataset\OCR\det\from000\toAITrain\cls_20250516_v0.1"
     d = OCRCLSDatasetV2(
@@ -267,6 +271,7 @@ def OCRCLSDatesetV2_sample_case1():
     #                for i in os.listdir(dst_dir)
     #                if os.path.isdir(os.path.join(dst_dir, i))]
     # union_label(label_files, os.path.join(dst_dir, "Label.txt"))
+
 
 def OCRRECDatesetV2_matting_for_AITrain():
     src_dir = r"E:\python_ai_dataset\OCR\det\Label_new\31-anno_20251121"
@@ -467,6 +472,187 @@ def OCRDatesetV2_sample_case3():
         dump_ocr_dataset(d_copy, dst_dir, custom_image_label_op=None, overwriting=True)
 
 
+def test_OCRDatesetV2_case4():
+    print()
+    src_list_all = det_paths(r"E:\python_ai_dataset\OCR\det\Label_new")
+    print(src_list_all)
+    src_list = []
+    for src in src_list_all:
+        if os.path.basename(src) in [
+            "4-Train996_reverse", "13-anno_20250225_AiDian_reverse", "25-OCR-opposite-20250927",
+            "26-OCR-opposite-20250928"
+        ]:
+            continue
+        src_list.append(src)
+
+    d_src = OCRDatasetV2(src_list, with_label=True,)
+    # print(len(d_src), d_src[1])
+    n2i = {v: k for k, v in d_src.image_map.items()}
+    old_dir = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2"
+
+    replace_list_file = open(os.path.join(old_dir, "replace_list.txt"), "w", encoding="utf-8")
+
+    cV2_dir = det_paths(old_dir)
+    for i in cV2_dir:
+        cV2_dir += det_paths(i)
+    for i in cV2_dir:
+        print(i)
+    d_cV2 = OCRDatasetV2(cV2_dir, )
+    d_cV2.with_label = True
+    cnt = 0
+    for i, n in d_cV2.image_map.items():
+        if n in n2i:
+            cnt += 1
+            im_p = d_cV2[i][0]
+            d_cV2[i] = (im_p, d_src[n2i[n]][1])
+
+    commonpath = os.path.commonpath(list(d_cV2.roots_map.values()))
+
+    def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+        img_path = Path(_img_path)
+        ext = img_path.suffix  # 包含 .jpg
+        parent = img_path.parent
+
+        relative_parts = str(parent).replace(commonpath, "").split(os.sep)[1:]
+        if not any("Type" in r for r in relative_parts):
+            relative_parts = relative_parts + ["Type0"]
+        name_parts = []
+
+        if index is not None:
+            name_parts.append(f"UID{index}")
+
+        if relative_parts:
+            name_parts.append(".".join(relative_parts))
+
+        if _label_data is not None and len(_label_data) > 0:
+            for idx, _la in enumerate(_label_data):
+                transcription = "{" + sanitize_filename(_la.get("transcription", "")) + "}"
+                name_parts.append(transcription)
+        else:
+            name_parts.append("{}")
+
+        basename = ".".join(name_parts) + ext
+        shutil.copy(_img_path, os.path.join(_dst_dir, basename))
+        replace_list_file.write(f"{index}, {os.path.basename(_img_path)}, {basename}\n")
+
+        if _label_file is not None:
+            dirname = os.path.basename(_dst_dir)
+            if _label_data is not None:
+                _label_str = _label_op(_label_data)
+                _label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
+            else:
+                _label_file.write(f"{dirname}/{basename}\t[]\n")
+
+    dump_ocr_dataset(
+        d_cV2, r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260204",
+        custom_image_label_op=image_label_op
+    )
+    print(len(d_cV2), cnt)
+    replace_list_file.close()
+
+
+def test_OCRDatesetV2_case5():
+    print()
+    dir_src = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2"
+    cV2_dir = det_paths(dir_src)
+    for i in cV2_dir:
+        cV2_dir += det_paths(i)
+
+    d_cV2 = OCRDatasetV2(cV2_dir, with_label=False)
+    print(len(d_cV2))
+
+    dir_new = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260205"
+    cV2_new = det_paths(dir_new)
+    for i in cV2_new:
+        cV2_new += det_paths(i)
+    cV2_new = [i for i in cV2_new if os.path.exists(os.path.join(i, "Label.txt"))]
+    d_new = OCRDatasetV2(cV2_new, with_label=True)
+    d_new_map = {v: k for k, v in d_new.image_map.items()}
+    print(len(d_new))
+    for i, (im, _) in enumerate(d_new[:10]):
+        print(i, im)
+
+    d1, d2, d3 = {}, {}, {}
+    new_dset = OCRDatasetV2(subject_to='image')
+    new_dset.with_label = True
+    with open(os.path.join(dir_src, "replace_list.txt"), "r", encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            idx, old_name, new_name = line.strip().rsplit(', ')
+            d1[idx] = (old_name, new_name)
+            d2[old_name] = new_name
+            d3[new_name] = old_name
+
+    for im, _ in d_cV2:
+        basename = os.path.basename(im)
+        new_path = d2.get(basename, "")
+        if new_path is not "":
+            new_idx = d_new_map[new_path]
+            # print(im, d_new[new_idx])
+            new_dset.append(im, d_new[new_idx][1])
+
+    commonpath = os.path.commonpath(list(d_cV2.roots_map.values()))
+
+    latest_dir = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260207"
+    os.makedirs(latest_dir, exist_ok=True)
+    replace_list_file = open(os.path.join(latest_dir, "replace_list.txt"), "w", encoding="utf-8")
+
+    def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+        img_path = Path(_img_path)
+        ext = img_path.suffix  # 包含 .jpg
+        parent = img_path.parent
+
+        relative_parts = str(parent).replace(commonpath, "").split(os.sep)[1:]
+        if not any("Type" in r for r in relative_parts):
+            relative_parts = relative_parts + ["Type0"]
+        name_parts = []
+
+        if index is not None:
+            name_parts.append(f"UID{index}")
+
+        if relative_parts:
+            name_parts.append(".".join(relative_parts))
+
+        if _label_data is not None and len(_label_data) > 0:
+            for idx, _la in enumerate(_label_data):
+                transcription = "{" + sanitize_filename(_la.get("transcription", "")) + "}"
+                name_parts.append(transcription)
+        else:
+            name_parts.append("{}")
+
+        basename = ".".join(name_parts) + ext
+        shutil.copy(_img_path, os.path.join(_dst_dir, basename))
+        replace_list_file.write(f"{index}, {os.path.basename(_img_path)}, {basename}\n")
+
+        if _label_file is not None:
+            dirname = os.path.basename(_dst_dir)
+            if _label_data is not None:
+                _label_str = _label_op(_label_data)
+                _label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
+            else:
+                _label_file.write(f"{dirname}/{basename}\t[]\n")
+
+    dump_ocr_dataset(
+        new_dset, latest_dir,
+        custom_image_label_op=image_label_op,
+        overwriting=True
+    )
+    print(len(new_dset))
+    replace_list_file.close()
+
+    save_d = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260207_vis"
+    latest_cV2_dir = det_paths(latest_dir)
+    for i in latest_cV2_dir:
+        latest_cV2_dir += det_paths(i)
+
+    union_label([os.path.join(i, "Label.txt")
+                 for i in latest_cV2_dir
+                 if os.path.exists(os.path.join(i, "Label.txt"))],
+                os.path.join(latest_dir, "Label.txt"))
+    # dset = OCRDatasetV2(latest_dir, with_label=True, subject_to='label')
+    # print(len(dset))
+    # VisualizeOCRDataset(dset, save_dir=save_d)()
+
+
 def test_OCRDatesetV2_init():
     print()
     # OCRDatesetV2_init_case1()
@@ -477,12 +663,26 @@ def test_OCRDatesetV2_init():
     # OCRDatesetV2_sample_case2()
     # OCRRECDatesetV2_sample_case0()
     # OCRCLSDatesetV2_sample_case1()
-    OCRRECDatesetV2_matting_for_AITrain()
+    # OCRRECDatesetV2_matting_for_AITrain()
 
     # union_labels(r"E:\python_ai_dataset\OCR\det\Label_new\anno")
     # union_labels(r"E:\python_ai_dataset\OCR\det\gather\anno_20250512_train")
     # union_labels(r"E:\python_ai_dataset\OCR\det\gather\anno_20250512_val")
     # union_labels(r"E:\python_ai_dataset\OCR\det\gather\anno_20250512_test")
+
+    dir_top = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260205"
+    save_d = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260205_vis"
+    cV2_dir = det_paths(dir_top)
+    for i in cV2_dir:
+        cV2_dir += det_paths(i)
+
+    union_label([os.path.join(i, "Label.txt")
+                 for i in cV2_dir
+                 if os.path.exists(os.path.join(i, "Label.txt"))],
+                os.path.join(dir_top, "Label.txt"))
+    dset = OCRDatasetV2(dir_top, with_label=True, subject_to='label')
+    print(len(dset))
+    VisualizeOCRDataset(dset, save_dir=save_d)()
 
 
 def test_OCRDataset_vis():
@@ -1008,7 +1208,7 @@ categories = {
 }
 
 def test_vis_yolo():
-    dir_path = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\raw-v2\Curr_blue_complex"
+    dir_path = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\raw\PCB-green-interface"
     cate_cooked = {
         0: "entity",
         1: "solder",
@@ -1074,11 +1274,11 @@ def test_yolo_img_rotate():
 
 
 def test_process_fod_dataset():
-    dataset_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\raw-v2"
-    cooking_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train_cooking"
-    cooked_dir  = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train_cooked"
-    train_dir   = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train"
-    train_split_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.6\train_split_v4.6.6"
+    dataset_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\raw"
+    cooking_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\train_cooking"
+    cooked_dir  = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\train_cooked"
+    train_dir   = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\train"
+    train_split_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\train_split_v4.7.0"
     dataset_txt = rf"{dataset_dir}/图像裁剪方案.txt"
     split_ratio = [0.83, 0.12, 0.05]
     from datetime import datetime
@@ -1352,12 +1552,45 @@ def test_convert_coco2yolo():
     print(len(d), d.task, d.is_read_image)
     print(d.categories())
     print(d.sample_info)
-    convert_voc2yolo(d, Path(dataset) / 'labels')
-    dy = YOLODataset(
-        dataset,
-        categories=d.categories(),
-        task='obb',
-        fix_bad_data=True
-    )
-    VisualizeYOLODataset(dy, Path(dataset) / 'vis')()
-    convert_yolo2coco(dy, Path(dataset) / 'train.json')
+    # convert_voc2yolo(d, Path(dataset) / 'labels')
+    # dy = YOLODataset(
+    #     dataset,
+    #     categories=d.categories(),
+    #     task='obb',
+    #     fix_bad_data=True
+    # )
+    # VisualizeYOLODataset(dy, Path(dataset) / 'vis')()
+    # convert_yolo2coco(dy, Path(dataset) / 'train.json')
+
+
+def test_Server():
+    import socket
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("0.0.0.0", 9000))
+    server.listen(5)
+
+    print("Server listening on 9000")
+
+    while True:
+        conn, addr = server.accept()
+        print("Client:", addr)
+
+        data = conn.recv(1024)
+        print("Recv:", data.decode())
+
+        conn.sendall(b"Hello Client")
+        conn.close()
+
+
+def test_Client():
+    import socket
+
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(("127.0.0.1", 9000))
+
+    client.sendall(b"Hello Server")
+    resp = client.recv(1024)
+
+    print(resp.decode())
+    client.close()

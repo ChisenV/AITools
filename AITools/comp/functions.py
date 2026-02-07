@@ -1,3 +1,5 @@
+import re
+import hashlib
 import glob
 import os
 import shutil
@@ -568,11 +570,16 @@ def rotate_rectangle(cx, cy, w, h, radians=None, degrees=None, round=None, dtype
 
 def union_label(label_files, dst_file):
     dst_dirname = os.path.basename(os.path.dirname(dst_file))
+    commonpath = os.path.commonpath(label_files)
     with open(dst_file, "w", encoding="utf-8") as f:
         for label_file in label_files:
+            label_dir = os.path.dirname(label_file)
+            subdir = str(label_dir).replace(commonpath + f"{os.sep}", "")
             with open(label_file, "r", encoding="utf-8") as f1:
                 for line in f1:
-                    f.write(f"{dst_dirname}/" + line)
+                    path, label = line.strip().split("\t")
+                    imgname = os.path.basename(path)
+                    f.write(f"{dst_dirname}{os.sep}{subdir}{os.sep}{imgname}\t{label}\n")
 
 
 def union_labels(dst_dir):
@@ -1240,3 +1247,37 @@ def are_axis_aligned_rectangles_intersecting(rect1, rect2):
 
     # 如果所有不相交的条件都不满足，则它们相交
     return True
+
+
+@FUNCTIONS.register_component
+def sanitize_filename(name: str, max_length: int = 50, replacement: str = "_") -> str:
+    """
+    生成跨平台安全文件名
+    """
+
+    if not name:
+        return "EMPTY"
+
+    # 替换非法字符
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', replacement, name)
+
+    # 去除首尾空格和点
+    name = name.strip(" .")
+
+    # Windows保留名检查
+    reserved = {
+        "CON","PRN","AUX","NUL",
+        "COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9",
+        "LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"
+    }
+
+    if name.upper() in reserved:
+        name = f"_{name}"
+
+    # 控制长度
+    if len(name) > max_length:
+        # 保留前半部分 + hash
+        hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
+        name = name[:max_length-9] + "_" + hash_suffix
+
+    return name if name else "EMPTY"

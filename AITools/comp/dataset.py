@@ -503,11 +503,19 @@ class OCRDatasetV2(IterableDataset):
     def with_label(self):
         return self._with_label
 
+    @with_label.setter
+    def with_label(self, value: bool):
+        self._with_label = value
+
     def image(self, index: int):
         return self._image_map[index]
 
     def directory(self, index: int):
         return self._roots_map[self._place_map[index]]
+
+    @property
+    def roots_map(self):
+        return self._roots_map
 
     def label(self, index: int):
         return self._label_map[index] if self.with_label else None
@@ -869,7 +877,7 @@ def dump_ocr_dataset(
         elif image_file_op == "move":
             img_op = shutil.move
 
-        def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None):
+        def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, **kwargs):
             basename = os.path.basename(_img_path)
             img_op(_img_path, os.path.join(_dst_dir, basename))
             if _label_file is not None and _label_data is not None:
@@ -888,17 +896,20 @@ def dump_ocr_dataset(
     else:
         os.makedirs(destination, exist_ok=True)
 
+    commonpath = os.path.commonpath(list(dataset.roots_map.values()))
+
     opened_files = {}
     try:
         iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
         if dataset.with_label:
             # Unified processing for labeled data
-            for image_path, label_data in iterator:
+            for i, (image_path, label_data) in enumerate(iterator):
                 # Determine destination directory
                 if len(dataset.directories) > 1:
                     src_dir = os.path.dirname(image_path)
-                    dir_name = os.path.basename(src_dir)
-                    dst_dir = os.path.join(destination, dir_name)
+                    # dir_name = os.path.basename(src_dir)
+                    # dst_dir = os.path.join(destination, dir_name)
+                    dst_dir = os.path.join(destination, os.path.relpath(src_dir, commonpath))
                 else:
                     dst_dir = destination
 
@@ -906,7 +917,8 @@ def dump_ocr_dataset(
                 label_file = os.path.join(dst_dir, label_file_name)
                 if label_file not in opened_files:
                     opened_files[label_file] = open(label_file, "w", encoding=label_file_encoding)
-                image_label_op(dst_dir, image_path, label_data, opened_files[label_file], dataset.fmt_label_dumps)
+                image_label_op(dst_dir, image_path, label_data, opened_files[label_file], dataset.fmt_label_dumps,
+                               index=i)
         else:
             # Unified processing for unlabeled data
             for img_path in iterator:
