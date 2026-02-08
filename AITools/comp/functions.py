@@ -1060,6 +1060,40 @@ def convert_yolo2coco(dataset, output_json):
     return coco_data
 
 
+def convert_labelme_json_to_ocr_txt(json_dir: Union[str, Path], output_txt: Union[str, Path]):
+    json_dir = Path(json_dir)
+    output_dir = Path(output_txt).parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dirname = output_dir.name
+
+    with open(output_txt, "w", encoding="utf-8") as out_file:
+        for json_file in json_dir.glob("*.json"):
+            data = JSONParser.load(json_file)
+            image_path = f"{output_dirname}{os.sep}{os.path.basename(data['imagePath'])}"
+
+            result_list = []
+
+            for shape in data.get("shapes", []):
+                transcription = shape.get("description", "")
+                difficult = shape.get("difficult", False)
+
+                points = [
+                    [int(p[0]), int(p[1])]
+                    for p in shape.get("points", [])
+                ]
+
+                item = {
+                    "transcription": transcription,
+                    "points": points,
+                    "difficult": difficult
+                }
+
+                result_list.append(item)
+
+            line = image_path + "\t" + JSONParser.dumps(result_list, ensure_ascii=False)
+            out_file.write(line + "\n")
+
+
 @FUNCTIONS.register_component
 def segment2box(segment: np.ndarray, width=640, height=640):
     """

@@ -106,7 +106,7 @@ class JSONParser(Parser):
             json.dump(data, f, **kwargs)
 
     @classmethod
-    def dumps(cls, data: Dict[str, Any], **kwargs) -> str:
+    def dumps(cls, data: Union[List, Dict[str, Any]], **kwargs) -> str:
         import json
         if 'indent' not in kwargs:
             kwargs['indent'] = None

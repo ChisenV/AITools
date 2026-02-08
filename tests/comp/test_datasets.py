@@ -12,8 +12,13 @@ import numpy as np
 from AITools import IMG_FORMATS
 from AITools.comp.dataset import *
 from AITools.comp.functions import *
-from AITools.comp.functions import convert_coco2yolo, rotate_image_around_point, generate_yolo_empty_labels, date_utils, \
-    convert_yolo2coco, sanitize_filename
+from AITools.comp.functions import \
+    convert_coco2yolo, \
+    rotate_image_around_point, \
+    generate_yolo_empty_labels, \
+    date_utils, \
+    convert_yolo2coco, \
+    sanitize_filename, convert_labelme_json_to_ocr_txt
 from AITools.comp.processor import VisualizeOCRDataset, VisualizeYOLODataset, CropImages
 from AITools.utils.stitch_images import stitch_images
 
@@ -653,6 +658,68 @@ def test_OCRDatesetV2_case5():
     # VisualizeOCRDataset(dset, save_dir=save_d)()
 
 
+def test_OCRDatesetV2_case6():
+    txt_save_dir = r"E:\python_ai_dataset\OCR\det\annoed-copy\OCR-V6.4-待标注-dip-紫光V2"
+    labelme_json_dir = rf"{txt_save_dir}\json"
+    convert_labelme_json_to_ocr_txt(labelme_json_dir, os.path.join(txt_save_dir, "Label.txt"))
+
+
+def test_OCRDatasetV2_case7():
+    top_dir = r"E:\python_ai_dataset\OCR\det\annoed-copy"
+    latest_dir = r"E:\python_ai_dataset\OCR\det\DIP_OCR"
+    offset = 18504
+    d = OCRDatasetV2(det_paths(top_dir), with_label=True, subject_to='image')
+    print(len(d))
+
+    def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+        img_path = Path(_img_path)
+        ext = img_path.suffix  # 包含 .jpg
+        parent = img_path.parent
+        dst_dir_parent = Path(_dst_dir).parent
+        print(dst_dir_parent)
+
+        relative_parts = [img_path.name.split('-')[0]]
+        if not any("Type" in r for r in relative_parts):
+            relative_parts = relative_parts + ["Type0"]
+        name_parts = []
+
+        if index is not None:
+            name_parts.append(f"UID{index + offset}")
+
+        if relative_parts:
+            name_parts.append(".".join(relative_parts))
+
+        if _label_data is not None and len(_label_data) > 0:
+            for idx, _la in enumerate(_label_data):
+                transcription = "{" + sanitize_filename(_la.get("transcription", "")) + "}"
+                name_parts.append(transcription)
+        else:
+            name_parts.append("{}")
+
+        basename = ".".join(name_parts) + ext
+        print(basename)
+        shutil.copy(_img_path, os.path.join(dst_dir_parent, basename))
+        # replace_list_file.write(f"{index}, {os.path.basename(_img_path)}, {basename}\n")
+
+        if _label_file is not None:
+            dirname = os.path.basename(dst_dir_parent)
+            if _label_data is not None:
+                _label_str = _label_op(_label_data)
+                _label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
+            else:
+                _label_file.write(f"{dirname}/{basename}\t[]\n")
+
+    dump_ocr_dataset(
+        d, latest_dir,
+        custom_image_label_op=image_label_op,
+        overwriting=True
+    )
+    union_label([os.path.join(i, "Label.txt")
+                 for i in det_paths(latest_dir)
+                 if os.path.exists(os.path.join(i, "Label.txt"))],
+                os.path.join(latest_dir, "Label.txt"))
+
+
 def test_OCRDatesetV2_init():
     print()
     # OCRDatesetV2_init_case1()
@@ -686,14 +753,16 @@ def test_OCRDatesetV2_init():
 
 
 def test_OCRDataset_vis():
-    dir_path = r"E:\python_ai_dataset\OCR\det\gather\categories_20250507"
-    vis_path = r"E:\python_ai_dataset\OCR\vis\gather\categories_20250507"
+    dir_path = r"E:\python_ai_dataset\OCR\det\DIP_OCR"
+    vis_path = r"E:\python_ai_dataset\OCR\det\DIP_OCR_vis"
 
     dataset = OCRDatasetV2(
-        det_paths(dir_path), with_label=True, subject_to="image")
-    VisualizeOCRDataset(dataset, save_dir=vis_path, text_enable=True, line_color=(0, 180, 0), text_color=(0, 128, 0))()
+        dir_path, with_label=True, subject_to="image"
+    )
 
-    return
+    VisualizeOCRDataset(
+        dataset, save_dir=vis_path, text_enable=True, line_color=(0, 180, 0), text_color=(0, 128, 0)
+    )()
 
 
 def test_YOLODataset_init():
