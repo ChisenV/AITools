@@ -579,7 +579,7 @@ class OCRDatasetV2(IterableDataset):
     def split(self, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True, specified=None):
         return split(self, ratio=ratio, subset_name=subset_name, seed=seed, grouped=grouped, specified=specified)
 
-    def wash(self, image_list: List[Union[str, int]], mode='drop'):
+    def wash(self, image_list: List[Union[str, int]], mode='drop') -> 'OCRDatasetV2':
         """
         According to the input image_list, discard the unwanted data, update self._image_map, self._label_map,
         self._place_map, self._roots_map, self._lab_files and other information.

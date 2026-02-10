@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from AITools import IMG_FORMATS
+from AITools import IMG_FORMATS, TensorRTModel
 from AITools.comp.dataset import *
 from AITools.comp.functions import *
 from AITools.comp.functions import \
@@ -597,7 +597,7 @@ def test_OCRDatesetV2_case5():
 
     commonpath = os.path.commonpath(list(d_cV2.roots_map.values()))
 
-    latest_dir = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260207"
+    latest_dir = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260210"
     os.makedirs(latest_dir, exist_ok=True)
     replace_list_file = open(os.path.join(latest_dir, "replace_list.txt"), "w", encoding="utf-8")
 
@@ -644,7 +644,7 @@ def test_OCRDatesetV2_case5():
     print(len(new_dset))
     replace_list_file.close()
 
-    save_d = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260207_vis"
+    save_d = rf"{latest_dir}_vis"
     latest_cV2_dir = det_paths(latest_dir)
     for i in latest_cV2_dir:
         latest_cV2_dir += det_paths(i)
@@ -652,7 +652,7 @@ def test_OCRDatesetV2_case5():
     union_label([os.path.join(i, "Label.txt")
                  for i in latest_cV2_dir
                  if os.path.exists(os.path.join(i, "Label.txt"))],
-                os.path.join(latest_dir, "Label.txt"))
+                os.path.join(latest_dir, "Label.txt"), sep='/')
     # dset = OCRDatasetV2(latest_dir, with_label=True, subject_to='label')
     # print(len(dset))
     # VisualizeOCRDataset(dset, save_dir=save_d)()
@@ -676,7 +676,7 @@ def test_OCRDatasetV2_case7():
         ext = img_path.suffix  # 包含 .jpg
         parent = img_path.parent
         dst_dir_parent = Path(_dst_dir).parent
-        print(dst_dir_parent)
+        # print(dst_dir_parent)
 
         relative_parts = [img_path.name.split('-')[0]]
         if not any("Type" in r for r in relative_parts):
@@ -697,7 +697,7 @@ def test_OCRDatasetV2_case7():
             name_parts.append("{}")
 
         basename = ".".join(name_parts) + ext
-        print(basename)
+        # print(basename)
         shutil.copy(_img_path, os.path.join(dst_dir_parent, basename))
         # replace_list_file.write(f"{index}, {os.path.basename(_img_path)}, {basename}\n")
 

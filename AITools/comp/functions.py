@@ -568,7 +568,7 @@ def rotate_rectangle(cx, cy, w, h, radians=None, degrees=None, round=None, dtype
         return rotated_point.astype(dtype)
 
 
-def union_label(label_files, dst_file):
+def union_label(label_files, dst_file, sep=os.sep):
     dst_dirname = os.path.basename(os.path.dirname(dst_file))
     commonpath = os.path.commonpath(label_files)
     with open(dst_file, "w", encoding="utf-8") as f:
@@ -579,7 +579,7 @@ def union_label(label_files, dst_file):
                 for line in f1:
                     path, label = line.strip().split("\t")
                     imgname = os.path.basename(path)
-                    f.write(f"{dst_dirname}{os.sep}{subdir}{os.sep}{imgname}\t{label}\n")
+                    f.write(f"{dst_dirname}{sep}{subdir}{sep}{imgname}\t{label}\n")
 
 
 def union_labels(dst_dir):
