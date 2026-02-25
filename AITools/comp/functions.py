@@ -5,7 +5,7 @@ import os
 import shutil
 from collections import defaultdict
 from pathlib import Path
-from typing import Union
+from typing import Union, List
 from datetime import datetime, timedelta
 
 import cv2
@@ -24,7 +24,8 @@ __all__ = [
     "invert_affine_transform",
     "plot_box_and_text_v2",
     "rotate_image",
-    "rotate_bbox",
+    "rotate_bbox_xyxy",
+    "rotate_bbox_xyxyxyxy",
     "rotate_points",
     "rotate_image_min",
     "order_rectangle_points",
@@ -51,7 +52,7 @@ from AITools.base.vision_def import (
     OCRLabel,
     IMG_FORMATS,
 )
-from AITools.core.manager import ComponentManager
+from AITools.core.manager import ComponentManager, get_component_manager
 
 FUNCTIONS = ComponentManager("functions")
 
@@ -443,7 +444,7 @@ def warp_affine_points(points, M, round=None):
 
 
 @FUNCTIONS.register_component
-def rotate_bbox(bbox, angle, imgsz):
+def rotate_bbox_xyxy(bbox, angle, imgsz):
     """
     对图像中的矩形框进行旋转，旋转中心为图像中心
 
@@ -483,6 +484,33 @@ def rotate_bbox(bbox, angle, imgsz):
     max_y = np.max(rotated_points[:, 1])
 
     return min_x, min_y, max_x, max_y
+
+
+@FUNCTIONS.register_component
+def rotate_bbox_xyxyxyxy(bbox, angle, imgsz):
+    h, w = imgsz
+
+    center = (w / 2, h / 2)
+    angle_rad = np.deg2rad(angle)
+
+    points = np.array(bbox, dtype=np.float32).reshape(-1, 2)
+
+    points_centered = points - center
+    rotation_matrix = np.array([
+        [np.cos(angle_rad), -np.sin(angle_rad)],
+        [np.sin(angle_rad), np.cos(angle_rad)]
+    ])
+
+    rotated_points = np.dot(points_centered, rotation_matrix.T)
+    rotated_points += center
+
+    min_x = np.min(rotated_points[:, 0])
+    max_x = np.max(rotated_points[:, 0])
+    min_y = np.min(rotated_points[:, 1])
+    max_y = np.max(rotated_points[:, 1])
+    return np.array(
+        [min_x, min_y, max_x, min_y, max_x, max_y, min_x, max_y],
+        dtype=np.float32).reshape(-1, 2)
 
 
 @FUNCTIONS.register_component
@@ -570,7 +598,10 @@ def rotate_rectangle(cx, cy, w, h, radians=None, degrees=None, round=None, dtype
 
 def union_label(label_files, dst_file, sep=os.sep):
     dst_dirname = os.path.basename(os.path.dirname(dst_file))
-    commonpath = os.path.commonpath(label_files)
+    if len(label_files) > 1:
+        commonpath = os.path.commonpath(label_files)
+    else:
+        commonpath = os.path.commonpath(label_files + [dst_file])
     with open(dst_file, "w", encoding="utf-8") as f:
         for label_file in label_files:
             label_dir = os.path.dirname(label_file)
@@ -985,7 +1016,7 @@ def convert_yolo2coco(dataset, output_json):
                     "category_id": category_id,
                     "bbox": [float(x_min), float(y_min), float(bbox_w), float(bbox_h)],
                     "area": float(bbox_w * bbox_h),
-                    "segmentation": [],  # YOLO doesn't have segmentation
+                    "segmentation": [],
                     "iscrowd": 0
                 }
             elif dataset.task in ['obb',]:
@@ -1161,7 +1192,7 @@ def get_img_files(img_path, log_prefix=''):
 
 
 @FUNCTIONS.register_component
-def rotate_image_around_point(image, center, angle_deg, imgsz):
+def rotate_image_around_point(image, center, angle_deg, scale=1., imgsz=None):
     """
     以指定点为中心旋转图像，保持图像尺寸不变
 
@@ -1169,6 +1200,8 @@ def rotate_image_around_point(image, center, angle_deg, imgsz):
         image: 输入图像 (numpy数组)
         center: 旋转中心点坐标 (x, y)
         angle_deg: 旋转角度(度)，正值表示逆时针旋转
+        scale: 缩放比例，默认为1.0
+        imgsz: 输出图像尺寸 w, h
 
     返回:
         rotated_image: 旋转后的图像
@@ -1178,17 +1211,17 @@ def rotate_image_around_point(image, center, angle_deg, imgsz):
 
     # 计算旋转矩阵
     R = np.eye(3, dtype=np.float32)
-    R[:2] = cv2.getRotationMatrix2D(center, angle_deg, 0.8)
+    R[:2] = cv2.getRotationMatrix2D(center, angle_deg, scale)
     # 平移 缩放
     A = np.eye(3, dtype=np.float32)
-    A[:2] = compute_affine_matrix((w, h), imgsz)[0]
+    A[:2] = compute_affine_matrix((w, h), imgsz if imgsz is not None else (w, h))[0]
     rotation_matrix = A @ R
 
     # 执行旋转（指定输出尺寸为原始尺寸）
     rotated_image = cv2.warpAffine(
         image,
         rotation_matrix[:2],
-        imgsz,
+        imgsz if imgsz is not None else (w, h),
         flags=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=(0, 0, 0))  # 填充黑边
@@ -1315,3 +1348,77 @@ def sanitize_filename(name: str, max_length: int = 50, replacement: str = "_") -
         name = name[:max_length-9] + "_" + hash_suffix
 
     return name if name else "EMPTY"
+
+
+def reverse_string(string: str, reverse_map) -> str:
+    return ''.join(reverse_map.get(c, c) for c in string)
+
+
+def reverse_order_string(string: str) -> str:
+    return string[::-1]
+
+
+def reverse_order_ocr_string(string, reverse_map) -> str:
+    return reverse_string(reverse_order_string(string), reverse_map)
+
+
+def reverse_order_ocr_string_from_file(string, reverse_list_file, split='\t'):
+    rm = {}
+    with open(reverse_list_file, 'r') as f:
+        for line in f:
+            key, value = line.strip().split(split)
+            rm[key] = value
+    return reverse_string(reverse_order_string(string), rm)
+
+
+def OCRDatasetV2_case10(ocr_dataset_list: List[str], out_dir, split_ratio=None):
+    if split_ratio is None:
+        split_ratio = [0.7, 0.15, 0.15]
+    dir_list = ocr_dataset_list
+
+    def det_paths(path):
+        return [os.path.join(path, i) for i in os.listdir(path)
+                if os.path.isdir(os.path.join(path, i))]
+
+    def get_all_dir(top_dir):
+        top_dir_listdir = det_paths(top_dir)
+        _all_dir = []
+        for i in top_dir_listdir:
+            _all_dir += det_paths(i)
+        sub_dir = [os.path.join(top_dir, d)
+                   for d in top_dir_listdir
+                   if os.path.exists(os.path.join(top_dir, d, "Label.txt"))]
+        return _all_dir + sub_dir
+
+    all_dir = []
+    for d in dir_list:
+        all_dir += get_all_dir(d)
+    for i in all_dir:
+        print(i)
+    ocr_dataset_map = {
+        i: get_component_manager("datasets")["OCRDatasetV2"](
+            i,
+            with_label=True,
+            subject_to='image'
+        )
+        for i in all_dir
+    }
+    split_map = {}
+    for path, dataset in ocr_dataset_map.items():
+        subsets = dataset.split(split_ratio)
+        for name, sub_ids in subsets.items():
+            subset = dataset.subset(sub_ids)
+            if name not in split_map:
+                split_map[name] = subset
+            else:
+                split_map[name] += subset
+    for name, dataset in split_map.items():
+        print(name, len(dataset))
+        curr_dir = os.path.join(out_dir, f"{name}")
+        os.makedirs(curr_dir, exist_ok=True)
+        with open(os.path.join(curr_dir, "Label.txt"), "w", encoding='utf-8') as f:
+            for img_path, lab_data in dataset:
+                shutil.copy(img_path, os.path.join(curr_dir, os.path.basename(img_path)))
+                f.write(f"{name}/{os.path.basename(img_path)}\t{dataset.fmt_label_dumps(lab_data)}\n")
+        # new_subset = OCRDatasetV2(curr_dir, with_label=True, subject_to='image')
+        # VisualizeOCRDataset(new_subset, save_dir=rf"{curr_dir}_vis")()
