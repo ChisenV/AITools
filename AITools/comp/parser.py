@@ -46,13 +46,13 @@ class YAMLParser(Parser):
     _SUPPORTED_EXTENSIONS = [".yaml", ".yml", "yaml", "yml"]
 
     @classmethod
-    def load(cls, path: Union[str, Path], encoding='utf-8', **kwargs) -> Dict[str, Any]:
+    def load(cls, path: Union[str, Path], encoding='utf-8', **kwargs) -> Any:
         import yaml
         with open(path, 'r', encoding=encoding) as f:
             return yaml.safe_load(f) or {}
 
     @classmethod
-    def loads(cls, data: str, **kwargs) -> Dict[str, Any]:
+    def loads(cls, data: str, **kwargs) -> Any:
         import yaml
         return yaml.safe_load(data) or {}
 
@@ -85,13 +85,13 @@ class JSONParser(Parser):
     _SUPPORTED_EXTENSIONS = [".json", "json"]
 
     @classmethod
-    def load(cls, path: Union[str, Path], encoding='utf-8', **kwargs) -> Dict[str, Any]:
+    def load(cls, path: Union[str, Path], encoding='utf-8', **kwargs) -> Any:
         import json
         with open(path, 'r', encoding=encoding) as f:
             return json.load(f, **kwargs) or {}
 
     @classmethod
-    def loads(cls, data: Union[str, bytes, bytearray], **kwargs) -> Dict[str, Any]:
+    def loads(cls, data: Union[str, bytes, bytearray], **kwargs) -> Any:
         import json
         return json.loads(data, **kwargs) or {}
 

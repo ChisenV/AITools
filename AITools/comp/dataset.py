@@ -238,12 +238,13 @@ class OCRDatasetV2(IterableDataset):
         return data
 
     @classmethod
-    def fmt_label_dumps(self, label):
+    def fmt_label_dumps(cls, label):
         return (str(label).replace("'", '"')
                 .replace('"difficult": 0', '"difficult": false')
                 .replace('"difficult": 1', '"difficult": true'))
 
-    def fmt_label_loads(self, label: str):
+    @classmethod
+    def fmt_label_loads(cls, label: str):
         return (label.strip("\n").strip("\r")
                 .replace('"difficult": false', '"difficult": 0')
                 .replace('"difficult": true', '"difficult": 1')
@@ -502,6 +503,10 @@ class OCRDatasetV2(IterableDataset):
     @property
     def with_label(self):
         return self._with_label
+
+    @with_image.setter
+    def with_image(self, value: bool):
+        self._with_image = value
 
     @with_label.setter
     def with_label(self, value: bool):
