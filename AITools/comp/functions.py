@@ -38,7 +38,10 @@ __all__ = [
     "convert_coco2yolo",
     "segment2box",
     "get_img_files",
-    "date_utils"
+    "date_utils",
+    "sanitize_filename",
+    "reverse_order_ocr_string",
+    "rotate_image_around_point",
 ]
 
 from .parser import XMLParser, JSONParser
@@ -604,13 +607,16 @@ def union_label(label_files, dst_file, sep=os.sep):
         commonpath = os.path.commonpath(label_files + [dst_file])
     with open(dst_file, "w", encoding="utf-8") as f:
         for label_file in label_files:
-            label_dir = os.path.dirname(label_file)
+            label_dir = os.path.normpath(os.path.dirname(label_file))
             subdir = str(label_dir).replace(commonpath + f"{os.sep}", "")
             with open(label_file, "r", encoding="utf-8") as f1:
                 for line in f1:
-                    path, label = line.strip().split("\t")
-                    imgname = os.path.basename(path)
-                    f.write(f"{dst_dirname}{sep}{subdir}{sep}{imgname}\t{label}\n")
+                    try:
+                        path, label = line.strip().split("\t")
+                        imgname = os.path.join(*Path(path).parts[1:])
+                        f.write(f"{dst_dirname}{sep}{subdir}{sep}{imgname}\t{label}\n")
+                    except:
+                        print(f"error line: {line}")
 
 
 def union_labels(dst_dir):
@@ -673,7 +679,8 @@ def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=Tr
                         continue
                     if voc_dataset.task == "det":
                         bbox = obj['bndbox']
-                        x, y, w, h = bbox['xmin'], bbox['ymin'], bbox['xmax'] - bbox['xmin'], bbox['ymax'] - bbox['ymin']
+                        x, y, w, h = bbox['xmin'], bbox['ymin'], bbox['xmax'] - bbox['xmin'], bbox['ymax'] - bbox[
+                            'ymin']
                         x, y, w, h = float(x + w / 2) / im_w, float(y + h / 2) / im_h, float(w) / im_w, float(h) / im_h
                         f.write(f"{cla_id} {x} {y} {w} {h}\n")
                     elif voc_dataset.task == "obb":
@@ -684,15 +691,18 @@ def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=Tr
                                     seg = obj['segmentation']
                                     _seg_x1, _seg_y1, _seg_x2, _seg_y2 = seg['x1'], seg['y1'], seg['x2'], seg['y2']
                                     _seg_x3, _seg_y3, _seg_x4, _seg_y4 = seg['x3'], seg['y3'], seg['x4'], seg['y4']
-                                    (seg_x1, seg_y1), (seg_x2, seg_y2), (seg_x3, seg_y3), (seg_x4, seg_y4) = cv2.RotatedRect(
+                                    (seg_x1, seg_y1), (seg_x2, seg_y2), (seg_x3, seg_y3), (
+                                    seg_x4, seg_y4) = cv2.RotatedRect(
                                         (_seg_x1, _seg_y1), (_seg_x2, _seg_y2), (_seg_x3, _seg_y3)
                                     ).points()
                                 except Exception as e:
                                     seg_x1, seg_y1, seg_x2, seg_y2, seg_x3, seg_y3, seg_x4, seg_y4 = 0, 0, 0, 0, 0, 0, 0, 0
                             bbox = obj.get('robndbox', {})
                             cx, cy, w, h, angle = bbox['cx'], bbox['cy'], bbox['w'], bbox['h'], bbox['angle']
-                            (x1, y1), (x2, y2), (x3, y3), (x4, y4) = cv2.RotatedRect((cx, cy), (w, h), np.rad2deg(angle)).points()
-                            if (seg_x1, seg_y1) != (x1, y1) or (seg_x2, seg_y2) != (x2, y2) or (seg_x3, seg_y3) != (x3, y3) or (seg_x4, seg_y4) != (x4, y4):
+                            (x1, y1), (x2, y2), (x3, y3), (x4, y4) = cv2.RotatedRect((cx, cy), (w, h),
+                                                                                     np.rad2deg(angle)).points()
+                            if (seg_x1, seg_y1) != (x1, y1) or (seg_x2, seg_y2) != (x2, y2) or (seg_x3, seg_y3) != (
+                            x3, y3) or (seg_x4, seg_y4) != (x4, y4):
                                 if isinstance(data['annotation']['object'], list):
                                     data['annotation']['object'][i]['segmentation'] = {
                                         'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
@@ -811,7 +821,7 @@ def merge_multi_segment(segments):
                     s.append(segments[i])
                 else:
                     idx = [0, idx[1] - idx[0]]
-                    s.append(segments[i][idx[0] : idx[1] + 1])
+                    s.append(segments[i][idx[0]: idx[1] + 1])
 
         else:
             for i in range(len(idx_list) - 1, -1, -1):
@@ -824,19 +834,19 @@ def merge_multi_segment(segments):
 
 @FUNCTIONS.register_component
 def convert_coco2yolo(
-    json_file,
-    save_dir,
-    use_segments=False,
-    cls91to80=False,
-    cls_filter=None,
-    label_exist_ok=False
+        json_file,
+        save_dir,
+        use_segments=False,
+        cls91to80=False,
+        cls_filter=None,
+        label_exist_ok=False
 ):
     """Converts COCO JSON format to YOLO label format, with options for segments and class mapping."""
     # save_dir = make_dirs()  # output directory
     coco80 = coco91_to_coco80_class()
 
     # Import json
-    fn = Path(save_dir) / "labels"   # folder name
+    fn = Path(save_dir) / "labels"  # folder name
     if os.path.exists(fn) and not label_exist_ok:
         shutil.rmtree(fn)  # delete dir
     os.makedirs(fn, exist_ok=label_exist_ok)
@@ -1019,7 +1029,7 @@ def convert_yolo2coco(dataset, output_json):
                     "segmentation": [],
                     "iscrowd": 0
                 }
-            elif dataset.task in ['obb',]:
+            elif dataset.task in ['obb', ]:
                 # YOLO format: class_id x1 y1 x2 y2 x3 y3 x4 y4
                 annotation = {}
             elif dataset.task in ['seg', 'segmentation']:
@@ -1317,25 +1327,25 @@ def are_axis_aligned_rectangles_intersecting(rect1, rect2):
 
 
 @FUNCTIONS.register_component
-def sanitize_filename(name: str, max_length: int = 50, replacement: str = "_") -> str:
+def sanitize_filename(name: str, max_length: int = 50, replacement: str = "_"):
     """
     生成跨平台安全文件名
     """
 
     if not name:
-        return "EMPTY"
+        return None
 
     # 替换非法字符
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', replacement, name)
 
     # 去除首尾空格和点
-    name = name.strip(" .")
+    name = name.strip(" ")
 
     # Windows保留名检查
     reserved = {
-        "CON","PRN","AUX","NUL",
-        "COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9",
-        "LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
     }
 
     if name.upper() in reserved:
@@ -1345,9 +1355,9 @@ def sanitize_filename(name: str, max_length: int = 50, replacement: str = "_") -
     if len(name) > max_length:
         # 保留前半部分 + hash
         hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
-        name = name[:max_length-9] + "_" + hash_suffix
+        name = name[:max_length - 9] + "_" + hash_suffix
 
-    return name if name else "EMPTY"
+    return name if name else None
 
 
 def reverse_string(string: str, reverse_map) -> str:
@@ -1369,56 +1379,3 @@ def reverse_order_ocr_string_from_file(string, reverse_list_file, split='\t'):
             key, value = line.strip().split(split)
             rm[key] = value
     return reverse_string(reverse_order_string(string), rm)
-
-
-def OCRDatasetV2_case10(ocr_dataset_list: List[str], out_dir, split_ratio=None):
-    if split_ratio is None:
-        split_ratio = [0.7, 0.15, 0.15]
-    dir_list = ocr_dataset_list
-
-    def det_paths(path):
-        return [os.path.join(path, i) for i in os.listdir(path)
-                if os.path.isdir(os.path.join(path, i))]
-
-    def get_all_dir(top_dir):
-        top_dir_listdir = det_paths(top_dir)
-        _all_dir = []
-        for i in top_dir_listdir:
-            _all_dir += det_paths(i)
-        sub_dir = [os.path.join(top_dir, d)
-                   for d in top_dir_listdir
-                   if os.path.exists(os.path.join(top_dir, d, "Label.txt"))]
-        return _all_dir + sub_dir
-
-    all_dir = []
-    for d in dir_list:
-        all_dir += get_all_dir(d)
-    for i in all_dir:
-        print(i)
-    ocr_dataset_map = {
-        i: get_component_manager("datasets")["OCRDatasetV2"](
-            i,
-            with_label=True,
-            subject_to='image'
-        )
-        for i in all_dir
-    }
-    split_map = {}
-    for path, dataset in ocr_dataset_map.items():
-        subsets = dataset.split(split_ratio)
-        for name, sub_ids in subsets.items():
-            subset = dataset.subset(sub_ids)
-            if name not in split_map:
-                split_map[name] = subset
-            else:
-                split_map[name] += subset
-    for name, dataset in split_map.items():
-        print(name, len(dataset))
-        curr_dir = os.path.join(out_dir, f"{name}")
-        os.makedirs(curr_dir, exist_ok=True)
-        with open(os.path.join(curr_dir, "Label.txt"), "w", encoding='utf-8') as f:
-            for img_path, lab_data in dataset:
-                shutil.copy(img_path, os.path.join(curr_dir, os.path.basename(img_path)))
-                f.write(f"{name}/{os.path.basename(img_path)}\t{dataset.fmt_label_dumps(lab_data)}\n")
-        # new_subset = OCRDatasetV2(curr_dir, with_label=True, subject_to='image')
-        # VisualizeOCRDataset(new_subset, save_dir=rf"{curr_dir}_vis")()

@@ -234,7 +234,8 @@ class OCRDatasetV2(IterableDataset):
                     continue
                 p, a = os.path.normpath(parts[0]), parts[1]
                 image_name = p if os.path.isabs(p) else os.path.join(file_dirname, *p.split(os.sep)[1:])
-                data[image_name] = self._parse_label(a)
+                if os.path.exists(image_name):
+                    data[image_name] = self._parse_label(a)
         return data
 
     @classmethod
@@ -809,10 +810,12 @@ class OCRRECDatasetV2(OCRDatasetV2):
     def _parse_label(self, contents):
         return self.fmt_label_loads(contents)
 
-    def fmt_label_dumps(self, label: str):
+    @classmethod
+    def fmt_label_dumps(cls, label: str):
         return label.strip("\n").strip("\r")
 
-    def fmt_label_loads(self, label: str):
+    @classmethod
+    def fmt_label_loads(cls, label: str):
         return label.strip("\n").strip("\r")
 
 

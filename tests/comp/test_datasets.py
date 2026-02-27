@@ -943,13 +943,16 @@ def test_OCRDatasetV2_case11():
 
 
 def test_OCRDatasetV2_case12():
-    dip_dirs = det_paths(r"E:\python_ai_dataset\OCR\det\gather\DIP_OCR")
-    for i in dip_dirs:
-        dip_dirs += det_paths(i)
-    dip_dirs = [i for i in dip_dirs if os.path.exists(os.path.join(i, "Label.txt"))]
-    DIP_OCR_dataset = OCRDatasetV2(dip_dirs,
-                                   with_label=True)
-    print(len(DIP_OCR_dataset))
+    # dip_dirs = det_paths(r"E:\python_ai_dataset\OCR\det\gather\DIP_OCR")
+    # for i in dip_dirs:
+    #     dip_dirs += det_paths(i)
+    # dip_dirs = [i for i in dip_dirs if os.path.exists(os.path.join(i, "Label.txt"))]
+    # DIP_OCR_dataset = OCRDatasetV2(dip_dirs,
+    #                                with_label=True)
+    # print(len(DIP_OCR_dataset))
+    os.path.normpath(r"SMT_Crystal\\Type5\\UID20154.SMT_Crystal.Type5.{25.000}.{514}.jpg")
+    print(os.path.splitext(r'SMT_Crystal\\Type5\\UID20154.SMT_Crystal.Type5.{25.000}.{514}.jpg'))
+    print(os.path.join(*Path(r'SMT_Crystal\\Type5\\UID20154.SMT_Crystal.Type5.{25.000}.{514}.jpg').parts[1:]))
 
 
 def test_OCRDatesetV2_init():
@@ -975,6 +978,11 @@ def test_OCRDatesetV2_init():
     # union_labels(r"E:\python_ai_dataset\OCR\det\gather\anno_20250512_train")
     # union_labels(r"E:\python_ai_dataset\OCR\det\gather\anno_20250512_val")
     # union_labels(r"E:\python_ai_dataset\OCR\det\gather\anno_20250512_test")
+
+
+def test_OCRRECDataset_vis():
+    d = OCRRECDatasetV2(r"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260226", with_label=True, subject_to="label")
+    print(len(d))
 
 
 def test_OCRDataset_vis():
