@@ -1,10 +1,14 @@
 import os
 import shutil
+import random
 from pathlib import Path
+from typing import Union, List
+from datetime import datetime
 
 import cv2
 import numpy as np
 from tqdm import tqdm
+from bs4 import BeautifulSoup
 
 os.environ["PATH"] = r"E:\thirdparty\TensorRT\TensorRT-10.10.0.31\lib;" + os.environ["PATH"]
 
@@ -12,11 +16,15 @@ from AITools import IMG_FORMATS
 from AITools.comp.dataset import OCRDatasetV2, dump_ocr_dataset, OCRRECDatasetV2, OCRCLSDatasetV2
 from AITools.comp.functions import sanitize_filename, union_label, reverse_order_ocr_string, rotate_bbox_xyxyxyxy, \
     imread, rotate_image_around_point, imwrite
-from AITools.comp.parser import JSONParser
+from AITools.comp.parser import JSONParser, YMLParser
 from AITools.comp.processor import VisualizeOCRDataset
 
 SEP_CHAR = "."
 RENAME_LIST_FILE = "rename_list.txt"
+date_num = int(datetime.now().strftime("%Y%m%d"))
+unidirect_char = ['a', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'r', 's', 't', 'v', 'y',
+                  'A', 'D', 'F', 'G', 'J', 'K', 'L', 'R', 'T', 'V', 'Y',
+                  '2', '4', '5', '7', '!', '@', '#', '$', '%', '^', '&', '*']
 
 
 def det_paths_level1(path):
@@ -41,6 +49,77 @@ def get_all_dir(top_dir):
                 os.path.join(root, "Label.txt")):
             _all_dir.append(root)
     return _all_dir
+
+
+def box_random_expand(
+    dataset: OCRDatasetV2,
+    expand_ratio: Union[float, List[float]],
+    expand_direction: Union[str, List[str]],
+    seed: int = None
+):
+    if isinstance(expand_ratio, float):
+        expand_ratio = [expand_ratio]
+    if len(expand_ratio) > 4 or any([r < 0 for r in expand_ratio]):
+        raise ValueError("Length of expand_ratio must be less 4 and it's elements must be greater than 0.")
+
+    if isinstance(expand_direction, str):
+        expand_direction = [expand_direction]
+    if any([d not in ["left", "right", "top", "bottom"] for d in expand_direction]):
+        raise ValueError("expand_direction must be one of 'left', 'right', 'top', 'bottom'")
+    if len(expand_direction) < len(expand_ratio):
+        raise ValueError("expand_direction must be at least as long as expand_ratio.")
+    if seed is not None:
+        random.seed(seed)
+    if not getattr(dataset, "with_label", False):
+        return
+
+    for i, (pa, la) in enumerate(dataset):
+        img = imread(pa)
+        if img is None:
+            continue
+        h, w = img.shape[:2]
+
+        for j, label in enumerate(la):
+            points = np.array(label["points"], dtype=np.float32)
+
+            x_min, y_min = np.min(points, axis=0)
+            x_max, y_max = np.max(points, axis=0)
+
+            for k, ratio in enumerate(expand_ratio):
+                direction = expand_direction[k]
+
+                box_w = x_max - x_min
+                box_h = y_max - y_min
+                ratio = random.uniform(0.0, ratio)
+                if ratio <= 0:
+                    continue
+                if direction == "left":
+                    delta = ratio * box_w
+                    x_min = max(0, x_min - delta)
+                elif direction == "right":
+                    delta = ratio * box_w
+                    x_max = min(w, x_max + delta)
+                elif direction == "top":
+                    delta = ratio * box_h
+                    y_min = max(0, y_min - delta)
+                elif direction == "bottom":
+                    delta = ratio * box_h
+                    y_max = min(h, y_max + delta)
+
+                if x_min >= x_max or y_min >= y_max:
+                    break
+
+            new_points = np.array([
+                [x_min, y_min],
+                [x_max, y_min],
+                [x_max, y_max],
+                [x_min, y_max]
+            ], dtype=np.int32)
+
+            la[j]["points"] = new_points.tolist()
+        dataset[i] = (pa, la)
+
+    return dataset
 
 
 def rename_classified_OCRDatesetV2(primal_dir, classified_dir, final_dir, exclude_list=None):
@@ -270,8 +349,6 @@ def reverse_OCRDatasetV2(top_dir, offset=None, angle=180, sample_rate=0.3):
 
     reversible_list_path = os.path.join(top_dir, "reversible_list.txt")
     replace_list_file = os.path.join(top_dir, "replace_list.txt")
-    from datetime import datetime
-    date_num = int(datetime.now().strftime("%Y%m%d"))
 
     with open(reversible_list_path, "r", encoding="utf-8") as f1:
         reversible_list_str = f1.readlines()
@@ -364,7 +441,7 @@ def reverse_OCRDatasetV2(top_dir, offset=None, angle=180, sample_rate=0.3):
     # VisualizeOCRDataset(dset, save_dir=rf"{top_dir}_reversible_vis")()
 
 
-def multi_OCRDatasetV2_split(ocr_dataset_list, out_dir, split_ratio=None, vis=False):
+def multi_OCRDatasetV2_split(ocr_dataset_list, out_dir, dataset_class=OCRDatasetV2, split_ratio=None, seed=None, vis=False):
     if split_ratio is None:
         split_ratio = [0.7, 0.15, 0.15]
     dir_list = ocr_dataset_list
@@ -374,7 +451,7 @@ def multi_OCRDatasetV2_split(ocr_dataset_list, out_dir, split_ratio=None, vis=Fa
         all_dir += get_all_dir(d)
 
     ocr_dataset_map = {
-        i: OCRDatasetV2(
+        i: dataset_class(
             i,
             with_label=True,
             subject_to='label'
@@ -383,7 +460,7 @@ def multi_OCRDatasetV2_split(ocr_dataset_list, out_dir, split_ratio=None, vis=Fa
     }
     split_map = {}
     for path, dataset in ocr_dataset_map.items():
-        subsets = dataset.split(split_ratio)
+        subsets = dataset.split(split_ratio, seed=seed)
         for name, sub_ids in subsets.items():
             subset = dataset.subset(sub_ids)
             if name not in split_map:
@@ -416,44 +493,33 @@ def split_OCRDatasetV2(top_dir, split_ratio=None):
     multi_OCRDatasetV2_split(dir_list, out_dir, split_ratio, vis=True)
 
 
-def matting_ocr_dataset_to_rec(src_dir, out_dir):
-    all_dir = get_all_dir(src_dir)
-    det_dataset_map = {
-        i: OCRDatasetV2(i, with_label=True, subject_to='label')
-        for i in all_dir
-    }
-    if all(len(det_dataset) == 0 for det_dataset in det_dataset_map.values()):
-        print("no data in dataset")
-        return
+def get_files_by_path(tree: dict, path_list: list):
+    """
+    根据多级路径返回文件列表
 
-    commonpath = os.path.commonpath(all_dir)
+    :param tree: 多层级目录树
+    :param path_list: 目录路径列表
+    :return: 文件列表（若不存在返回空列表）
+    """
 
-    mid = 0
-    for path, dataset in det_dataset_map.items():
-        sub_path = Path(path.replace(commonpath, ""))
-        new_path = path.replace(commonpath, out_dir)
-        new_dirname = os.path.basename(new_path)
-        os.makedirs(new_path, exist_ok=True)
-        label_file = os.path.join(new_path, "Label.txt")
-        sub_parts = Path(sub_path).parts[1:]
+    if not isinstance(path_list, list) or not path_list:
+        return []
 
-        f = open(label_file, "w", encoding="utf-8")
-        for img_path, lab_data in tqdm(dataset, desc=f"matting dataset: {sub_path}"):
-            uid = os.path.basename(img_path).split(SEP_CHAR)[0]
-            img = imread(img_path)
-            for offset_id, la in enumerate(lab_data):
-                save_img_name = SEP_CHAR.join(
-                    [rf"MID{mid}", uid, *sub_parts, f"{{{sanitize_filename(la['transcription'])}}}", "png"]
-                )
-                rect = cv2.boundingRect(np.array(la["points"]))
-                if len(img.shape) == 3:
-                    roi = img[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2], :]
-                    imwrite(os.path.join(new_path, save_img_name), roi)
-                    f.write(f"{new_dirname}/{save_img_name}\t{OCRRECDatasetV2.fmt_label_dumps(la['transcription'])}\n")
-                    # print(os.path.join(new_path, save_img_name),
-                    # f"{new_dirname}/{save_img_name}\t{OCRRECDatasetV2.fmt_label_dumps(la['transcription'])}\n")
-                    mid += 1
-        f.close()
+    node = tree
+
+    for key in path_list:
+        if not isinstance(node, dict):
+            return []
+
+        if key not in node:
+            return []
+
+        node = node[key]
+
+    if isinstance(node, dict):
+        return node.get("__files__", [])
+
+    return []
 
 
 def ocr_det_process():
@@ -462,7 +528,7 @@ def ocr_det_process():
     final_dir = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260205"  # 如果标注有错误可以在这里用PPOCRLabel修改
     dip_old = r"E:\python_ai_dataset\OCR\det\gather\DIP_OCR_collect"
     dip_dir = r"E:\python_ai_dataset\OCR\det\gather\DIP_OCR"
-    latest_dir = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260226"  # 最终的数据集会包含dip_dir
+    latest_dir = rf"E:\python_ai_dataset\OCR\det\gather\categoriesV2_{date_num}"  # 最终的数据集会包含dip_dir
     exclude_list = [
         "4-Train996_reverse", "13-anno_20250225_AiDian_reverse", "25-OCR-opposite-20250927",
         "26-OCR-opposite-20250928"
@@ -485,6 +551,150 @@ def ocr_det_process():
     split_OCRDatasetV2(latest_dir, split_ratio=split_ratio)
 
 
+def do_matting(det_dataset_map, out_dir, commonpath, offset=0):
+    if all(len(det_dataset) == 0 for det_dataset in det_dataset_map.values()):
+        print("no data in dataset")
+        return
+
+    mid = offset if offset is not None else 0
+    for path, dataset in det_dataset_map.items():
+        sub_path = Path(path.replace(commonpath, ""))
+        new_path = path.replace(commonpath, out_dir)
+        new_dirname = os.path.basename(new_path)
+        os.makedirs(new_path, exist_ok=True)
+        label_file = os.path.join(new_path, "Label.txt")
+        sub_parts = list(Path(sub_path).parts[1:])
+        if not any("Type" in p for p in sub_parts):
+            sub_parts += ["Type0"]
+        f = open(label_file, "w", encoding="utf-8")
+
+        for img_path, lab_data in tqdm(dataset, desc=f"matting dataset: {sub_path}"):
+            uid = os.path.basename(img_path).split(SEP_CHAR)[0]
+            img = imread(img_path)
+            for offset_id, la in enumerate(lab_data):
+                save_img_name = SEP_CHAR.join(
+                    [rf"MID{mid}", uid, *sub_parts, f"{{{sanitize_filename(la['transcription'])}}}", "png"]
+                )
+                rect = cv2.boundingRect(np.array(la["points"]))
+                if len(img.shape) == 3:
+                    roi = img[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2], :]
+                    imwrite(os.path.join(new_path, save_img_name), roi)
+                    f.write(
+                        f"{new_dirname}/{save_img_name}\t{OCRRECDatasetV2.fmt_label_dumps(la['transcription'])}\n")
+                    # print(os.path.join(new_path, save_img_name),
+                    # f"{new_dirname}/{save_img_name}\t{OCRRECDatasetV2.fmt_label_dumps(la['transcription'])}\n")
+                    mid += 1
+        f.close()
+    return mid
+
+
+def matting_ocr_dataset_to_rec(src_dir, out_dir, offset=None):
+    all_dir = get_all_dir(src_dir)
+    det_dataset_map = {
+        i: OCRDatasetV2(i, with_label=True, subject_to='label')
+        for i in all_dir
+    }
+    commonpath = os.path.commonpath(all_dir)
+    # _offset = do_matting(det_dataset_map, out_dir, commonpath, offset)
+    _offset = len(OCRRECDatasetV2(r"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260303_done",
+                              with_label=True, subject_to='label'))
+    if offset is None:
+        offset = _offset
+
+    def expand_ratio(p):
+        if "SMT_EleCapacitors" in p:
+            return [0.3, 0.3, 0.25, 0.25]
+        elif "SMT_IC" in p or "SMT_IC" in p:
+            return [0.3, 0.3, 0.2, 0.2]
+        elif "SMT_Inductor" in p or "SMT_QFN" in p:
+            return [0.3, 0.3, 0.2, 0.2]
+        elif "SMT_Mosfet" in p:
+            return [0.4, 0.4, 0.45, 0.45]
+        elif "Others" in p or "SMT_Diode" in p:
+            return [0.4, 0.4, 0.35, 0.35]
+        else:
+            return [0.35, 0.35, 0.35, 0.35]
+
+    expand_datasets = {
+        path: box_random_expand(
+            # dataset.subset(dataset.sample(0.3)),
+            dataset,
+            expand_ratio=expand_ratio(path),
+            expand_direction=["left", "right", "top", "bottom"],
+            seed=date_num
+        )
+        for path, dataset in tqdm(det_dataset_map.items(), desc="box random expand")
+    }
+    do_matting(expand_datasets, f"{out_dir}_expand_tmp", commonpath)
+
+    expand_tmp_dirs = get_all_dir(f"{out_dir}_expand_tmp")
+    rotate_dict = YMLParser.load(path=r"E:\python_ai_dataset\OCR\det\gather\rotate_list.yml")
+    commonpath = os.path.commonpath(expand_tmp_dirs)
+
+    def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+        if not os.path.exists(_img_path):
+            print(f"img not exists: {_img_path}")
+            return
+        if not any(c in _label_data for c in unidirect_char):
+            return
+        img_path = Path(_img_path)
+        ext = img_path.suffix
+        parent = img_path.parent
+        basename = img_path.name
+        dirname = os.path.basename(parent)
+
+        relative_dirs = str(parent).replace(commonpath, "").split(os.sep)[1:]
+
+        rotate_file = get_files_by_path(rotate_dict, relative_dirs)
+        if basename in rotate_file:
+            return
+        # basename = SEP_CHAR.join([f"MID{index + offset}"] + basename.split(f"{SEP_CHAR}")[1:])
+
+        shutil.move(_img_path, os.path.join(_dst_dir, basename))
+        _label_file.write(f"{dirname}/{basename}\t{_label_data}\n")
+
+    dump_ocr_dataset(
+        OCRRECDatasetV2(expand_tmp_dirs, with_label=True, subject_to='label'),
+        f"{out_dir}_expand",
+        custom_image_label_op=image_label_op
+    )
+
+    # union_label_all_OCRDatasetV2(f"{out_dir}/DIP_OCR")
+    # union_label_all_OCRDatasetV2(out_dir)
+    # union_label(
+    #     [os.path.join(i, "Label.txt") for i in det_paths_level1(out_dir)],
+    #     os.path.join(out_dir, "Label.txt")
+    # )
+
+    shutil.rmtree(f"{out_dir}_expand_tmp")
+
+    expand_out_dir = f"{out_dir}_expand"
+    out_offset = offset
+    def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+        nonlocal out_offset
+        dirname = os.path.basename(_dst_dir)
+        basename = os.path.basename(_img_path)
+        basename = SEP_CHAR.join([f"MID{index + offset}"] + basename.split(SEP_CHAR)[1:])
+        os.rename(_img_path, os.path.join(_dst_dir, basename))
+        _label_file.write(f"{dirname}/{basename}\t{_label_data}\n")
+        out_offset = index + offset + 1
+
+    dump_ocr_dataset(
+        OCRRECDatasetV2(get_all_dir(expand_out_dir), with_label=True, subject_to='label'),
+        expand_out_dir,
+        custom_image_label_op=image_label_op,
+        overwriting=True
+    )
+
+    union_label_all_OCRDatasetV2(f"{expand_out_dir}/DIP_OCR")
+    union_label_all_OCRDatasetV2(expand_out_dir)
+    union_label(
+        [os.path.join(i, "Label.txt") for i in det_paths_level1(expand_out_dir)],
+        os.path.join(expand_out_dir, "Label.txt")
+    )
+    return out_offset
+
+
 def reverse_OCRRECDatasetV2(rec_dir, replace_list_file, offset=None, angle=180):
     d = OCRRECDatasetV2(get_all_dir(rec_dir), with_label=True, subject_to='label')
     if offset is None:
@@ -498,9 +708,14 @@ def reverse_OCRRECDatasetV2(rec_dir, replace_list_file, offset=None, angle=180):
             key, value = line.strip().split('\t')
             rm[key] = value
 
+    _index = 0
+
     def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+        nonlocal _index
         if not os.path.exists(_img_path):
             print(f"img not exists: {_img_path}")
+            return
+        if not any(c in _label_data for c in unidirect_char):
             return
         img_path = Path(_img_path)
         ext = img_path.suffix
@@ -509,10 +724,10 @@ def reverse_OCRRECDatasetV2(rec_dir, replace_list_file, offset=None, angle=180):
         relative_parts = [uid] + str(parent).replace(commonpath, "").split(os.sep)[1:]
         if not any("Type" in r for r in relative_parts):
             relative_parts = relative_parts + ["Type0"]
-        name_parts = []
+        name_parts = [f"MID{_index + offset}"]
 
-        if index is not None:
-            name_parts.append(f"MID{index + offset}")
+        # if index is not None:
+        _index += 1
 
         if relative_parts:
             name_parts.append(SEP_CHAR.join(relative_parts))
@@ -545,21 +760,20 @@ def reverse_OCRRECDatasetV2(rec_dir, replace_list_file, offset=None, angle=180):
 def OCRRECDatesetV2_dump_for_AITrain(rec_dir, dst_dir, direct="to"):
     if direct == "to":
         d = OCRRECDatasetV2(
-            rec_dir,
+            get_all_dir(rec_dir),
             with_label=True,
             read_image=False,
             subject_to="label",
         )
     else:
         d = OCRDatasetV2(
-            rec_dir,
+            get_all_dir(rec_dir),
             with_label=True,
             read_image=False,
             subject_to="label",
         )
 
     os.makedirs(dst_dir, exist_ok=True)
-    label_file = open(os.path.join(dst_dir, "Label.txt"), "w", encoding="utf-8")
 
     def op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
         if not os.path.exists(_img_path):
@@ -568,9 +782,9 @@ def OCRRECDatesetV2_dump_for_AITrain(rec_dir, dst_dir, direct="to"):
         basename = os.path.basename(_img_path)
         im = imread(_img_path)
         h, w, _ = im.shape
-        shutil.copy(_img_path, os.path.join(dst_dir, basename))
+        shutil.copy(_img_path, os.path.join(_dst_dir, basename))
         if _label_file is not None and _label_data is not None:
-            dirname = os.path.basename(dst_dir)
+            dirname = os.path.basename(_dst_dir)
             if direct == "to":
                 # _label_str = _label_op(_label_data)
                 lab = [{"transcription": _label_data, "points": [[0, 0], [w, 0], [w, h], [0, h]], "difficult": 0}]
@@ -581,44 +795,61 @@ def OCRRECDatesetV2_dump_for_AITrain(rec_dir, dst_dir, direct="to"):
                 _label_str = _label_data[0]["transcription"]
                 # for la in _label_data:
                 #     _label_str = la["transcription"]
-            label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
+            _label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
 
     dump_ocr_dataset(d, dst_dir, custom_image_label_op=op, overwriting=True)
-    label_file.close()
+    union_label_all_OCRDatasetV2(f"{dst_dir}/DIP_OCR")
+    union_label_all_OCRDatasetV2(dst_dir)
+    union_label(
+        [os.path.join(i, "Label.txt") for i in det_paths_level1(dst_dir)],
+        os.path.join(dst_dir, "Label.txt")
+    )
 
 
-def split_OCRRECDatasetV2(dir_list, out_dir, split_ratio=None, vis=False):
+def split_OCRRECDatasetV2(dir_list, out_dir, split_ratio=None, seed=None, vis=False):
     if split_ratio is None:
         split_ratio = [0.7, 0.15, 0.15]
-    multi_OCRDatasetV2_split(dir_list, out_dir, split_ratio, vis=vis)
+    multi_OCRDatasetV2_split(dir_list, out_dir,
+                             dataset_class=OCRRECDatasetV2,
+                             split_ratio=split_ratio, seed=None, vis=vis)
 
 
 def ocr_rec_process():
-    det_dir = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2_20260226"
-    out_dir = r"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260226"
+    _date_num = 20260303  # date_num
+    det_dir = rf"E:\python_ai_dataset\OCR\det\gather\categoriesV2_{_date_num}"
+    out_dir1 = r"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260226"
+    out_dir = rf"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_{_date_num}"
     replace_file = r"E:\python_ai_dataset\OCR\det\gather\replace_list.txt"
     split_ratio = [0.6, 0.2, 0.2]
-    # matting_ocr_dataset_to_rec(det_dir, out_dir)
-    # union_label_all_OCRDatasetV2(f"{out_dir}/DIP_OCR")
-    # union_label_all_OCRDatasetV2(out_dir)
-    # union_label(
-    #     [os.path.join(i, "Label.txt") for i in det_paths_level1(out_dir)],
-    #     os.path.join(out_dir, "Label.txt")
-    # )
-    reverse_OCRRECDatasetV2(out_dir, replace_file)
-    OCRRECDatesetV2_dump_for_AITrain(out_dir, f"{out_dir}_AITrain", direct="to")
-    OCRRECDatesetV2_dump_for_AITrain(f"{out_dir}_reversible",
-                                     f"{out_dir}_reversible_AITrain", direct="to")
-    split_OCRRECDatasetV2([f"{out_dir}_AITrain", f"{out_dir}_reversible_AITrain"],
-                          f"{out_dir}_split",
-                          split_ratio=split_ratio, vis=True)
+
+    # offset = matting_ocr_dataset_to_rec(det_dir, out_dir)
+    # reverse_OCRRECDatasetV2(f"{out_dir}_done", replace_file, offset=offset)
+    OCRRECDatesetV2_dump_for_AITrain(f"{out_dir}_done",
+                                     f"{out_dir}_done_AITrain", direct="to")
+    OCRRECDatesetV2_dump_for_AITrain(f"{out_dir}_expand",
+                                     f"{out_dir}_expand_AITrain", direct="to")
+    OCRRECDatesetV2_dump_for_AITrain(f"{out_dir}_done_reversible",
+                                     f"{out_dir}_done_reversible_AITrain", direct="to")
+
+    d1 = OCRRECDatasetV2(get_all_dir(f"{out_dir}_expand_AITrain"), with_label=True, subject_to="label")
+    d2 = OCRRECDatasetV2(get_all_dir(f"{out_dir}_done_reversible_AITrain"), with_label=True, subject_to="label")
+    d1_s = d1.subset(d1.sample(0.3, seed=_date_num))
+    d2_s = d2.subset(d2.sample(0.3, seed=_date_num))
+    dump_ocr_dataset(d1_s, f"{out_dir}_expand_AITrain_sample", image_file_op="move")
+    dump_ocr_dataset(d2_s, f"{out_dir}_done_reversible_AITrain_sample", image_file_op="move")
+
+    split_OCRRECDatasetV2([
+        f"{out_dir}_done_AITrain",
+        f"{out_dir}_expand_AITrain_sample",
+        f"{out_dir}_done_reversible_AITrain_sample"
+    ],
+        f"{out_dir}_split",
+        split_ratio=split_ratio,
+        vis=False
+    )
 
 
-def OCRRECDatasetV2_to_cls():
-    rec_dir_0 = r"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260226"
-    rec_dir_180 = f"{rec_dir_0}_reversible"
-
-    cls_dir = r"E:\python_ai_dataset\OCR\cls\gather\categoriesV2_20260226"
+def OCRRECDatasetV2_to_cls(rec_dir_0, rec_dir_180, cls_dir):
     d0 = OCRRECDatasetV2(rec_dir_0, with_label=True, read_image=False, subject_to="label")
     d180 = OCRRECDatasetV2(rec_dir_180, with_label=True, read_image=False, subject_to="label")
 
@@ -638,22 +869,159 @@ def OCRRECDatasetV2_to_cls():
 
 
 def ocr_cls_process():
-    # OCRRECDatasetV2_to_cls()
-    cls_dir = r"E:\python_ai_dataset\OCR\cls\gather\categoriesV2_20260226"
+    rec_dir_0 = rf"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260303_done"
+    rec_dir_180 = f"{rec_dir_0}_reversible"
+    cls_dir = rf"E:\python_ai_dataset\OCR\cls\gather\categoriesV2_{date_num}"
     dst_dir = fr"{cls_dir}_split"
+
+    OCRRECDatasetV2_to_cls(rec_dir_0, rec_dir_180, cls_dir)
     cls_dir_list = [rf"{cls_dir}/0", rf"{cls_dir}/180"]
     d = OCRCLSDatasetV2(cls_dir_list, with_label=True, read_image=False, subject_to="label",
                         categories={0: '0', 1: '180'})
-
-    from datetime import datetime
-    date_num = int(datetime.now().strftime("%Y%m%d"))
 
     subsets = d.split([0.6, 0.2, 0.2], seed=date_num)
     for i, (name, subset_list) in enumerate(subsets.items()):
         dump_ocr_dataset(d.subset(subset_list), f"{dst_dir}/{name}", overwriting=True)
 
 
+def parse_tree_diff(html_path, encoding="gb2312"):
+    with open(html_path, "r", encoding=encoding, errors="ignore") as f:
+        content = f.read()
+
+    def create_soup(content):
+        try:
+            return BeautifulSoup(content, "lxml")
+        except:
+            return BeautifulSoup(content, "html.parser")
+
+    soup = create_soup(content)
+
+    tree = {}
+    stack = []
+
+    table = soup.find("table", class_="dc")
+
+    for tr in table.find_all("tr"):
+        td = tr.find("td", class_="AlignLeft")
+        if not td:
+            continue
+
+        # 计算深度
+        depth = 0
+        for img in td.find_all("img"):
+            alt = img.get("alt", "")
+            if alt in ["|", "+", "\\", " "]:
+                depth += 1
+
+        # 判断是否目录
+        dir_img = td.find("img", alt="<DIR>")
+        text = td.get_text(strip=True)
+
+        if not text:
+            continue
+
+        # 调整栈深度
+        while len(stack) > depth:
+            stack.pop()
+
+        if dir_img:
+            # 目录节点
+            node = {}
+            if not stack:
+                tree[text] = node
+            else:
+                parent = stack[-1]
+                parent[text] = node
+
+            stack.append(node)
+
+        else:
+            # 文件节点
+            if stack:
+                current = stack[-1]
+                current.setdefault("__files__", []).append(text)
+
+    return tree
+
+
+def ocr_rec_special_process():
+    _date_num = 20260303
+    commonpath = rf"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_{_date_num}"
+
+    d0 = OCRRECDatasetV2(get_all_dir(f"{commonpath}_done"), with_label=True, subject_to="label")
+    d1 = OCRRECDatasetV2(get_all_dir(f"{commonpath}_expand"), with_label=True, subject_to="label")
+    d2 = OCRRECDatasetV2(get_all_dir(f"{commonpath}_done_reversible"), with_label=True, subject_to="label")
+    total_len = len(d0) + len(d1) + len(d2)
+    print(f"{len(d0) = } + {len(d1) = } + {len(d2) = } => {total_len = }")
+    d1_s = d1.subset(d1.sample(0.3, seed=_date_num))
+    d2_s = d2.subset(d2.sample(0.3, seed=_date_num))
+    dump_ocr_dataset(d1_s, f"{commonpath}_expand_sample", image_file_op="copy")
+    dump_ocr_dataset(d2_s, f"{commonpath}_done_reversible_sample", image_file_op="copy")
+
+    split_OCRRECDatasetV2([
+        f"{commonpath}_done",
+        f"{commonpath}_expand_sample",
+        f"{commonpath}_done_reversible_sample"
+    ],
+        f"{commonpath}_rec_split",
+        split_ratio=[0.6, 0.2, 0.2],
+        seed=_date_num,
+        vis=False
+    )
+
+
+def ocr_cls_special_process():
+    commonpath = rf"E:\python_ai_dataset\OCR\cls\gather\categoriesV2_20260303_split"
+    union_label_all_OCRDatasetV2(commonpath)
+
+
+def ocr_rec_char_dict():
+
+    chars = ['!', '"', '#', '$', '%', '&', "'", '(', ')', '*', '+', ',', '-',
+             '.', '/', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':',
+             ';', '<', '=', '>', '?', '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G',
+             'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
+             'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\', ']', '^', '_', '`', 'a',
+             'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
+             'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '{',
+             '|', '}', '~']
+
+    chars = sorted(chars)
+    print(chars)
+
+    # commonpath = rf"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260303_split"
+    # d = OCRDatasetV2(get_all_dir(commonpath), with_label=True, subject_to="label")
+    #
+    # char_dict = {}
+    # for i, (img_path, label) in enumerate(d):
+    #     f = False
+    #     for l in label:
+    #         for c in l['transcription']:
+    #             char_dict[c] = char_dict.get(c, 0) + 1
+    #             if c == ' ':
+    #                 f = True
+    #     if f:
+    #         print(f"{i = } {img_path = } {label = }")
+    # print(YMLParser.dumps(char_dict))
+    #
+    # char_dict_final = sorted(set(char_dict.keys()))
+    with open(r"custom_en_dict.txt", 'w', encoding='utf-8') as f:
+        for c in chars:
+            f.write(c + '\n')
+        # for c in chars:
+        #     if c not in char_dict_final:
+        #         print(f"{c = } not in char_dict_final")
+    # return char_dict
+
+
 if __name__ == "__main__":
     # ocr_det_process()
     # ocr_rec_process()
-    ocr_cls_process()
+    # ocr_rec_special_process()
+    # ocr_cls_special_process()
+    # ocr_cls_process()
+    # d = parse_tree_diff(r"C:\Users\WQS\Desktop\h.txt")
+    # print(YMLParser.dumps(d, allow_unicode=True, indent=2))
+
+    ocr_rec_char_dict()
+

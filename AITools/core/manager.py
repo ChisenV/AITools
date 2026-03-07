@@ -78,8 +78,16 @@ class ComponentManager:
         return len(self._components_dict)
 
     def __repr__(self) -> str:
-        name_str = self._name if self._name else self.__class__.__name__
-        return "{}:{}".format(name_str, set(self._components_dict.keys()))
+        manager_name = repr(self._name)
+        append_global = repr(self.is_global)
+        components = list(self._components_dict.keys())
+
+        return (
+            f"{self.__class__.__name__}(name={manager_name}, "
+            f"comp_name_getter={self._name_getter.__name__}, "
+            f"append_global={append_global})"
+            f".register_component({components})"
+        )
 
     def __getitem__(self, item: str) -> Union[type, Callable]:
         if item not in self._components_dict.keys():

@@ -236,6 +236,8 @@ class OCRDatasetV2(IterableDataset):
                 image_name = p if os.path.isabs(p) else os.path.join(file_dirname, *p.split(os.sep)[1:])
                 if os.path.exists(image_name):
                     data[image_name] = self._parse_label(a)
+                else:
+                    print(f"Warning: {image_name} does not exist, skip.")
         return data
 
     @classmethod

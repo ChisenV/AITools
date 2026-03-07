@@ -981,8 +981,13 @@ def test_OCRDatesetV2_init():
 
 
 def test_OCRRECDataset_vis():
-    d = OCRRECDatasetV2(r"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260226", with_label=True, subject_to="label")
-    print(len(d))
+    # d = OCRRECDatasetV2(r"E:\python_ai_dataset\OCR\rec\gather\categoriesV2_20260303_done_reversible",
+    #                     with_label=True, subject_to="label")
+    # print(len(d))
+    a = np.array([1,2,3,4])
+    print(id(a), a)
+    b = a.reshape((-1,2))
+    print(id(b), b)
 
 
 def test_OCRDataset_vis():
