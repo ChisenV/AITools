@@ -1907,3 +1907,31 @@ def test_Client():
 
     print(resp.decode())
     client.close()
+
+
+def test_convert_coco2yolo_1():
+    cate_cooked = {
+        0: "entity",
+        1: "solder",
+        2: "paster",
+        3: "device",
+        4: "ball",  # solderBall
+        5: "sticker",
+        6: "footprint",
+        7: "xizha"
+    }
+    dataset_dir = r"E:\python_ai_dataset\foreign-object-detect\NEW\V4.7\PinBan_XIZHU_20260313"
+    convert_coco2yolo(
+        rf"{dataset_dir}\images\annotations\annotations.json",
+        dataset_dir,
+        use_segments=True,)
+    generate_yolo_empty_labels(Path(dataset_dir) / 'images', Path(dataset_dir) / 'labels')
+    dy = YOLODataset(
+        dataset_dir,
+        image_dirname="images",
+        label_dirname="labels",
+        with_label=True,
+        task="seg",
+        categories=cate_cooked,
+    )
+    VisualizeYOLODataset(dy, Path(dataset_dir) / 'vis')()

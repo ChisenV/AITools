@@ -1150,8 +1150,8 @@ class SeparateDataset(IterableDataset):
         self._with_image = with_image
         self._with_label = with_label
         self._read_image = read_image
-        self.image_dirname = image_dirname
-        self.label_dirname = label_dirname
+        self.image_dirname = os.path.normpath(image_dirname)
+        self.label_dirname = os.path.normpath(label_dirname)
         self.task = task
         self.transformers = transformers
         self.subject_to = subject_to
@@ -1451,6 +1451,105 @@ class SeparateDataset(IterableDataset):
 
     def split(self, ratio: Union[float, List[float]] = None, subset_name=None, seed: int = None, grouped: bool = True, specified=None):
         return split(self, ratio=ratio, subset_name=subset_name, seed=seed, grouped=grouped, specified=specified)
+
+    def sample(
+        self,
+        ratio: Union[float, Dict[Union[int, str], float]],
+        condition: Callable = None,
+        seed: int = None,
+        parallel: bool = False
+    ) -> list[int]:
+        """
+        Stratified sampling by folder
+
+        :param ratio: Sample scale, which can be global scale or dictionary {root directory ID/ path: scale}
+        :param condition: Filter function `condition(item) -> bool`
+        :param seed: Random seed (full reproducibility not guaranteed in parallel mode)
+        :param parallel: Enable parallel processing (for large-scale data)
+        :return: Sampling index list
+        """
+        # parameter checking
+        if not 0 <= (ratio if isinstance(ratio, float) else max(ratio.values())) <= 1:
+            raise ValueError("The sampling ratio must be between [0.0 and 1.0].")
+        if condition is not None:
+            if not callable(condition):
+                raise TypeError("condition must be a callable function.")
+        else:
+            def condition(*args): return True
+
+        # Seed setting
+        if seed is not None:
+            random.seed(seed)
+            if parallel:
+                warnings.warn(f"Sample seed set: {seed} (may not be fully reproducible in parallel mode)")
+
+        # Dynamic proportional preprocessing
+        ratio_map = self._parse_ratio(ratio)
+
+        # Group preprocessing
+        root_groups = self.get_root_groups()
+
+        # Parallel/Serial processing
+        if parallel:
+            return self._parallel_sample(root_groups, ratio_map, condition)
+        else:
+            return self._sequential_sample(root_groups, ratio_map, condition)
+
+    def _parse_ratio(self, ratio: Union[float, Dict]) -> Dict[int, float]:
+        """Converts ratio uniformly to the format {root directory ID: ratio}"""
+        if isinstance(ratio, float):
+            return {rid: ratio for rid in self._roots_map}
+
+        resolved_ratio = {}
+        for k, v in ratio.items():
+            if isinstance(k, str):
+                abs_path = os.path.abspath(k)
+                found = [rid for rid, path in self._roots_map.items() if path == abs_path]
+                if not found:
+                    raise KeyError(f"The root directory for the path was not found: {k}")
+                resolved_ratio[found[0]] = v
+            else:
+                if k not in self._roots_map:
+                    raise KeyError(f"Invalid root directory id: {k}")
+                resolved_ratio[k] = v
+        return resolved_ratio
+
+    def _process_root_group(self, rid: int, indices: list, ratio: float, condition: Callable) -> list:
+        """Handles sampling logic for a single root directory"""
+        valid_indices = [i for i in indices if condition(self[i])]
+        if not valid_indices:
+            return []
+
+        sample_size = max(1, math.ceil(len(valid_indices) * ratio))
+        sample_size = min(sample_size, len(valid_indices))
+
+        return random.sample(valid_indices, sample_size) if sample_size < len(valid_indices) else valid_indices
+
+    def _sequential_sample(self, groups: Dict, ratio_map: Dict, condition: Callable) -> list:
+        """Serial sampling"""
+        subset = []
+        for rid, indices in groups.items():
+            ratio = ratio_map.get(rid, 0.0)  # A directory with no specified ratio is not sampled by default
+            subset.extend(self._process_root_group(rid, indices, ratio, condition))
+        return subset
+
+    def _parallel_sample(self, groups: Dict, ratio_map: Dict, condition: Callable) -> list:
+        """Parallel sampling (for IO-intensive tasks)"""
+        subset = []
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for rid, indices in groups.items():
+                ratio = ratio_map.get(rid, 0.0)
+                futures.append(
+                    executor.submit(
+                        self._process_root_group,
+                        rid, indices, ratio, condition
+                    )
+                )
+
+            for future in concurrent.futures.as_completed(futures):
+                subset.extend(future.result())
+        return subset
 
     def get_root_groups(self):
         """Gets an index of samples grouped by root directory"""
