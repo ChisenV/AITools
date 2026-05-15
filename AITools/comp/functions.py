@@ -42,6 +42,7 @@ __all__ = [
     "sanitize_filename",
     "reverse_order_ocr_string",
     "rotate_image_around_point",
+    "convert_ocr2yolo",
 ]
 
 from .parser import XMLParser, JSONParser
@@ -834,12 +835,12 @@ def merge_multi_segment(segments):
 
 @FUNCTIONS.register_component
 def convert_coco2yolo(
-        json_file,
-        save_dir,
-        use_segments=False,
-        cls91to80=False,
-        cls_filter=None,
-        label_exist_ok=False
+    json_file,
+    save_dir,
+    use_segments=False,
+    cls91to80=False,
+    cls_filter=None,
+    label_exist_ok=False
 ):
     """Converts COCO JSON format to YOLO label format, with options for segments and class mapping."""
     # save_dir = make_dirs()  # output directory
@@ -1379,3 +1380,62 @@ def reverse_order_ocr_string_from_file(string, reverse_list_file, split='\t'):
             key, value = line.strip().split(split)
             rm[key] = value
     return reverse_string(reverse_order_string(string), rm)
+
+
+def quad_to_bbox(points):
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def convert_ocr2yolo(ocr_dataset, output_dir, task='det'):
+    if len(ocr_dataset) == 0:
+        return
+    assert task in ['det', 'obb'], 'task must be det or obb'
+    os.makedirs(output_dir, exist_ok=True)
+
+    if len(ocr_dataset.roots_map) > 1:
+        commonpath = os.path.commonpath(ocr_dataset.roots_map.values())
+    else:
+        commonpath = ocr_dataset.roots_map.values()[0]
+
+    for image_path, label_data in tqdm(ocr_dataset):
+        image_path = Path(image_path)
+        img = imread(image_path)
+        h, w = img.shape[:2]
+        label_lines = []
+
+        for idx, ann in enumerate(label_data):
+            # if ann.get("difficult", False):
+            #     continue
+
+            text = ann["transcription"]
+            points = ann["points"]
+            if task == 'det':
+                xmin, ymin, xmax, ymax = quad_to_bbox(points)
+
+                x_center = (xmin + xmax) / 2.0 / w
+                y_center = (ymin + ymax) / 2.0 / h
+                bw = (xmax - xmin) / w
+                bh = (ymax - ymin) / h
+
+                label_lines.append(
+                    f"0 {x_center:.6f} {y_center:.6f} {bw:.6f} {bh:.6f}"
+                )
+            else:
+                points = np.array(points)
+                points = points / [w, h]
+                p = points.flatten().tolist()
+                label_lines.append(
+                    f"0 {p[0]:.6f} {p[1]:.6f} {p[2]:.6f} {p[3]:.6f} {p[4]:.6f} {p[5]:.6f} {p[6]:.6f} {p[7]:.6f}"
+                )
+
+        out_dir = str(image_path.parent).replace(commonpath, output_dir)
+        os.makedirs(out_dir, exist_ok=True)
+        label_path = os.path.join(
+            out_dir,
+            os.path.splitext(os.path.basename(image_path))[0] + ".txt"
+        )
+
+        with open(label_path, "w") as f:
+            f.write("\n".join(label_lines))
