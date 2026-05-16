@@ -515,7 +515,9 @@ class OCRDatasetV2(IterableDataset):
     def with_label(self, value: bool):
         self._with_label = value
 
-    def image(self, index: int):
+    def image(self, index: int, absolute: bool = False):
+        if absolute:
+            return os.path.join(self._roots_map[self._place_map[index]], self._image_map[index])
         return self._image_map[index]
 
     def directory(self, index: int):

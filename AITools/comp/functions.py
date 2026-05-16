@@ -24,8 +24,12 @@ __all__ = [
     "invert_affine_transform",
     "plot_box_and_text_v2",
     "rotate_image",
+    "rotate_image_auto",
+    "rotate_image_fast",
     "rotate_bbox_xyxy",
     "rotate_bbox_xyxyxyxy",
+    "rotate_bbox_xyxyxyxy_auto",
+    "rotate_bbox_fast",
     "rotate_points",
     "rotate_image_min",
     "order_rectangle_points",
@@ -43,6 +47,7 @@ __all__ = [
     "reverse_order_ocr_string",
     "rotate_image_around_point",
     "convert_ocr2yolo",
+    "generate_ocr_empty_label",
 ]
 
 from .parser import XMLParser, JSONParser
@@ -358,6 +363,40 @@ def rotate_image(image, angle):
 
 
 @FUNCTIONS.register_component
+def rotate_image_auto(image, angle):
+    """
+    对图像进行任意角度旋转，旋转中心为图像中心，
+    并自动调整输出图像大小以避免裁剪。
+
+    参数:
+        image: 输入图像 (numpy数组)
+        angle: 旋转角度(度)，正值为逆时针旋转
+
+    返回:
+        旋转后的图像
+    """
+    (h, w) = image.shape[:2]
+    center = (w / 2, h / 2)
+
+    # 旋转矩阵
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+    # 计算旋转后图像的新的边界大小
+    cos = np.abs(M[0, 0])
+    sin = np.abs(M[0, 1])
+    new_w = int(h * sin + w * cos)
+    new_h = int(h * cos + w * sin)
+
+    # 调整旋转矩阵的平移部分，使图像居中
+    M[0, 2] += (new_w / 2) - center[0]
+    M[1, 2] += (new_h / 2) - center[1]
+
+    # 执行旋转
+    rotated = cv2.warpAffine(image, M, (new_w, new_h))
+    return rotated, M
+
+
+@FUNCTIONS.register_component
 def rotate_image_min(image, angle):
     """
     计算旋转图像后的最小外接矩形
@@ -518,6 +557,47 @@ def rotate_bbox_xyxyxyxy(bbox, angle, imgsz):
 
 
 @FUNCTIONS.register_component
+def rotate_bbox_xyxyxyxy_auto(bbox, angle, imgsz):
+    """
+    精确旋转 bbox，和 rotate_image 完全一致，适配任意角度和图像尺寸变化
+    """
+    h, w = imgsz
+    center = (w / 2, h / 2)
+
+    points = np.array(bbox, dtype=np.float32).reshape(-1,2)
+
+    # 旋转矩阵
+    M = cv2.getRotationMatrix2D(center, angle, 1.0)
+
+    # 计算旋转后图像的新的边界大小
+    cos = np.abs(M[0, 0])
+    sin = np.abs(M[0, 1])
+    new_w = int(h * sin + w * cos)
+    new_h = int(h * cos + w * sin)
+
+    # 调整旋转矩阵的平移部分，使图像居中
+    M[0, 2] += (new_w / 2) - center[0]
+    M[1, 2] += (new_h / 2) - center[1]
+
+    # 旋转 bbox
+    rotated_points = cv2.transform(np.array([points]), M)[0]
+
+    return rotated_points
+
+
+@FUNCTIONS.register_component
+def rotate_bbox_with_M(bbox, M):
+    """
+    使用 OpenCV warpAffine 矩阵 M 旋转 bbox
+    bbox: [x0,y0,x1,y1,x2,y2,x3,y3]
+    M: 2x3 仿射矩阵
+    """
+    points = np.array(bbox, dtype=np.float32).reshape(-1,2)
+    rotated = cv2.transform(np.array([points]), M)[0]
+    return rotated
+
+
+@FUNCTIONS.register_component
 def rotate_points(points, angle, imgsz):
     """
     对图像中的一组点进行旋转，旋转中心为图像中心
@@ -598,6 +678,56 @@ def rotate_rectangle(cx, cy, w, h, radians=None, degrees=None, round=None, dtype
         return rotated_point.round(round).astype(dtype)
     else:
         return rotated_point.astype(dtype)
+
+
+@FUNCTIONS.register_component
+def rotate_image_fast(image, angle):
+    """
+    快速旋转图像，支持90、180、270度
+    正值为逆时针旋转
+    """
+    if angle % 360 == 90:
+        return cv2.transpose(image)[::-1, :]
+    elif angle % 360 == 180:
+        return image[::-1, ::-1]
+    elif angle % 360 == 270:
+        return cv2.transpose(image)[:, ::-1]
+    elif angle % 360 == 0:
+        return image.copy()
+    else:
+        raise ValueError("fast rotation only supports 90, 180, 270 degrees")
+
+
+@FUNCTIONS.register_component
+def rotate_bbox_fast(bbox, angle, imgsz):
+    """
+    快速旋转bbox，支持90、180、270度
+    返回旋转后的四个顶点坐标
+    """
+    h, w = imgsz
+    points = np.array(bbox, dtype=np.float32).reshape(-1, 2)
+
+    angle = angle % 360
+    if angle == 0:
+        return points
+    elif angle == 90:
+        # (x, y) -> (y', x') 对应逆时针旋转90°
+        rotated = np.zeros_like(points)
+        rotated[:, 0] = points[:, 1]           # 新x = 原y
+        rotated[:, 1] = w - points[:, 0]      # 新y = w - 原x
+        return rotated
+    elif angle == 180:
+        rotated = np.zeros_like(points)
+        rotated[:, 0] = w - points[:, 0]      # 新x = w - x
+        rotated[:, 1] = h - points[:, 1]      # 新y = h - y
+        return rotated
+    elif angle == 270:
+        rotated = np.zeros_like(points)
+        rotated[:, 0] = h - points[:, 1]      # 新x = h - y
+        rotated[:, 1] = points[:, 0]           # 新y = x
+        return rotated
+    else:
+        raise ValueError("fast rotation only supports 90, 180, 270 degrees")
 
 
 def union_label(label_files, dst_file, sep=os.sep):
@@ -1267,6 +1397,27 @@ def generate_yolo_empty_labels(images_dir, labels_dir, pbar: tqdm = None):
                 if pbar:
                     pbar.update()
                     pbar.set_postfix_str(f"Captured yolo empty labels: {os.path.basename(lab_path)}")
+    return count
+
+
+def generate_ocr_empty_label(images_dir, labels_dir=None, pbar: tqdm = None):
+    if labels_dir is None:
+        labels_dir = images_dir
+    if not os.path.exists(labels_dir):
+        os.makedirs(labels_dir)
+    count = 0
+    dirname = os.path.basename(images_dir)
+    f = open(os.path.join(labels_dir, "Label.txt"), 'w')
+    for basename in os.listdir(images_dir):
+        img_path = os.path.join(images_dir, basename)
+        if os.path.isfile(img_path) and basename.rsplit(
+                '.', 1)[-1].lower() in IMG_FORMATS:
+            f.write(f"{dirname}/{basename}\t[]\n")
+            count += 1
+            if pbar:
+                pbar.update()
+                pbar.set_postfix_str(f"Captured ocr empty labels: {basename}")
+    f.close()
     return count
 
 
