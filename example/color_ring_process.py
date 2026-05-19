@@ -34,7 +34,7 @@ def convert_coco2yolo_cr_dataset(top_dir):
     annotation_file = Path(top_dir) / "Annotations" / "annotations.json"
     categories = convert_coco2yolo(annotation_file, top_dir, True)
     generate_yolo_empty_labels(Path(top_dir) / 'images', Path(top_dir) / 'labels')
-    d = YOLODataset(top_dir, categories=categories, task='seg')
+    d = YOLODataset(top_dir, categories=categories, task='seg', fix_bad_data=True)
     VisualizeYOLODataset(d, Path(top_dir) / 'vis')()
     return categories
 
@@ -67,21 +67,21 @@ def collect_img(input_dir, output_dir):
 
 
 if __name__ == '__main__':
-    input_dir = r"E:\python_ai_dataset\ColorRing\DA6-A1\RunTime"
-    output_dir = r"E:\python_ai_dataset\ColorRing\ColorRing_20260513"
-    collect_img(input_dir, output_dir)
+    input_dir = r"E:\ds\ColorRing\anno\ColorRing_20260513"
+    output_dir = r"E:\ds\ColorRing\anno\ColorRing_20260513-rename"
+    # collect_img(input_dir, output_dir)
 
     # top_dir = Path(r"E:\python_ai_dataset\ColorRing\annoed")
     # input_dirs = [r"ColorRing_20260323", r"ColorRing_20260408", r"ColorRing_20260409",]
-    id_offset = 444
+    id_offset = 594
     # for i in input_dirs:
     #     input_dir = Path(top_dir) / i
     #     convert_coco2yolo_cr_dataset(input_dir)
 
-    # cate = convert_coco2yolo_cr_dataset(top_dir / r"ColorRing_20260409")
-    # rename(Path(output_dir) / "images", id_offset, include_yolo_label=False)
-    #
-    # d = YOLODataset(top_dir / r"ColorRing_20260409", categories=cate, task='seg')
-    #
-    # convert_yolo2coco(d, top_dir / r"ColorRing_20260409" / "annotations.json")
+    cate = convert_coco2yolo_cr_dataset(input_dir)
+    # rename(Path(input_dir) / "images", id_offset, include_yolo_label=True)
+
+    d = YOLODataset(input_dir, categories=cate, task='seg', fix_bad_data=True)
+
+    convert_yolo2coco(d, Path(input_dir) / "annotations.json")
 

@@ -474,6 +474,8 @@ def multi_OCRDatasetV2_split(ocr_dataset_list, out_dir, dataset_class=OCRDataset
         total += len(dataset)
         curr_dir = os.path.join(out_dir, f"{name}")
         os.makedirs(curr_dir, exist_ok=True)
+        print(f"current dir: {curr_dir}")
+        time.sleep(0.8)
         with open(os.path.join(curr_dir, "Label.txt"), "w", encoding='utf-8') as f:
             for img_path, lab_data in tqdm(dataset, desc=f"dump split dataset: {name}"):
                 shutil.copy(img_path, os.path.join(curr_dir, os.path.basename(img_path)))
@@ -568,6 +570,10 @@ def ocr_det_process_v2():
     stable_label_dir = r"E:\ds\OCR\anno\Stable\categorized_20260303"
     # 处理后的衍生最终版本
     derivative_dir = rf"E:\ds\OCR\anno\Derive\derived_{date_num}"
+    derivative_rotate_dir = rf"E:\ds\OCR\anno\Derive\derived_{date_num}_r"
+    # 分好训练验证测试集进行
+    AITrain_dir = rf"E:\ds\OCR\anno\AITrain\OCRV6.6_{date_num}"
+    split_ratio = [0.72, 0.16, 0.12]
 
     def step1():
         def get_exclude_list(path):
@@ -794,8 +800,8 @@ def ocr_det_process_v2():
 
         random.seed(date_num)
         offset = len(derived_ds)
-        os.makedirs(f"{derivative_dir}_r", exist_ok=True)
-        rotate_angle_file = open(os.path.join(f"{derivative_dir}_r", "rotate_angle.txt"), "w", encoding="utf-8")
+        os.makedirs(derivative_rotate_dir, exist_ok=True)
+        rotate_angle_file = open(os.path.join(derivative_rotate_dir, "rotate_angle.txt"), "w", encoding="utf-8")
         commonpath = os.path.commonpath(list(rotate_ds.roots_map.values()))
         def rotate_image_label(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
             img_path = Path(_img_path)
@@ -844,22 +850,60 @@ def ocr_det_process_v2():
                 else:
                     _label_file.write(f"{dirname}/{basename}\t[]\n")
 
-        dump_ocr_dataset(rotate_ds, f"{derivative_dir}_r", custom_image_label_op=rotate_image_label, overwriting=True)
+        dump_ocr_dataset(rotate_ds, derivative_rotate_dir, custom_image_label_op=rotate_image_label, overwriting=True)
         rotate_angle_file.close()
 
-        union_label_all_OCRDatasetV2(Path(f"{derivative_dir}_r") / "DIP_OCR")
-        union_label_all_OCRDatasetV2(f"{derivative_dir}_r")
-        derived_rotate_list = det_paths_level1(f"{derivative_dir}_r")
+        union_label_all_OCRDatasetV2(Path(derivative_rotate_dir) / "DIP_OCR")
+        union_label_all_OCRDatasetV2(derivative_rotate_dir)
+        derived_rotate_list = det_paths_level1(derivative_rotate_dir)
         for c in derived_rotate_list:
             derived_rotate_list += det_paths_level1(c)
         print("derived_rotate_list:", len(derived_rotate_list), derived_rotate_list)
         derived_rotate_ds = OCRDatasetV2(derived_rotate_list, with_label=True)
         print("derived_rotate_ds:", len(derived_rotate_ds), "set:", len(set(derived_rotate_ds.image_map.values())))
         time.sleep(0.5)
-        VisualizeOCRDataset(derived_rotate_ds, save_dir=rf"{derivative_dir}_r_vis")()
+        # VisualizeOCRDataset(derived_rotate_ds, save_dir=rf"{derivative_rotate_dir}_vis")()
+        print("="*65)
+
+    def OCRDatesetV2_dump_for_AITrain(src_dirs, dst_dir, direct="to"):
+        if src_dirs is None:
+            return
+        elif isinstance(src_dirs, str):
+            src_dirs = [src_dirs]
+        elif isinstance(src_dirs, list):
+            pass
+
+        os.makedirs(dst_dir, exist_ok=True)
+        all_dirs = []
+        for src_dir in src_dirs:
+            sub_dirs = det_paths_level1(src_dir)
+            for c in sub_dirs:
+                sub_dirs += det_paths_level1(c)
+            all_dirs += sub_dirs
+
+        # ds = OCRDatasetV2(all_dirs, with_label=True)
+        # print(f"{len(ds) = }", f"{len(all_dirs) = }")
+        multi_OCRDatasetV2_split(all_dirs, dst_dir, split_ratio=split_ratio, vis=True)
+
+        # def for_AITrain(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+        #     img_path = Path(_img_path)
+        #     basename = img_path.name
+        #
+        #     shutil.copy(_img_path, os.path.join(AITrain_dir, basename))
+        #     if _label_file is not None:
+        #         dirname = os.path.basename(AITrain_dir)
+        #         if _label_data is not None:
+        #             _label_str = _label_op(_label_data)
+        #             _label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
+        #         else:
+        #             _label_file.write(f"{dirname}/{basename}\t[]\n")
+        #
+        # dump_ocr_dataset(ds, dst_dir, custom_image_label_op=for_AITrain, overwriting=True)
+        # del ds, all_dirs
 
     # step1()
-    step2()
+    # step2()
+    OCRDatesetV2_dump_for_AITrain([derivative_dir, derivative_rotate_dir], AITrain_dir)
 
 
 def rename_dir_images():
