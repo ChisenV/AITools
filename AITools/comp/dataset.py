@@ -1,5 +1,6 @@
 import concurrent
 import copy
+import inspect
 import json
 import math
 import os
@@ -1780,6 +1781,18 @@ def validate_normalized_coords(coords, l_n, fix_data=False):
                 )
 
 
+def _filter_kwargs(func, kwargs):
+    """Pass only kwargs whose names match the callable parameters."""
+    try:
+        sig = inspect.signature(func)
+        params = sig.parameters
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+            return kwargs
+        return {k: v for k, v in kwargs.items() if k in params}
+    except (ValueError, TypeError):
+        return {}
+
+
 def dump_yolo_dataset(
     dataset: YOLODataset,
     destination: str,
@@ -1826,8 +1839,9 @@ def dump_yolo_dataset(
             os.makedirs(new_image_dir, exist_ok=True)
             new_label_dir = os.path.dirname(new_label_path)
             os.makedirs(new_label_dir, exist_ok=True)
-            img_op(old_image_path, new_image_path)
-            lab_op(old_label_path, new_label_path)
+            extra_kwargs = dict(idx=idx, image_name=image_name)
+            img_op(old_image_path, new_image_path, **_filter_kwargs(img_op, extra_kwargs))
+            lab_op(old_label_path, new_label_path, **_filter_kwargs(lab_op, extra_kwargs))
     except Exception as e:
         raise e
 

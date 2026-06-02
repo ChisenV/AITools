@@ -1,4 +1,5 @@
 import os
+import shutil
 from datetime import datetime
 
 os.environ["PATH"] = r"E:\thirdparty\TensorRT\TensorRT-10.10.0.31\lib;" + os.environ["PATH"]
@@ -38,11 +39,36 @@ def collect_all_dataset():
         r"E:\ds\Bubble\anno\BUBBLE-AIDIAN\images_crop_1024\images",
         r"E:\ds\Bubble\anno\UV_BUBBLE\images_crop_1024\images",
     ]
-    dy = YOLODataset(dirs, with_label=True, categories={0: "UV_BUBBLE"}, read_image=False)
-    print(len(dy))
-    dst_dir = rf"E:\ds\Bubble\toTrain\Bubble_{date_num}"
-    dump_yolo_dataset(dy, dst_dir)
+    dy = YOLODataset(
+        dirs, with_label=True, categories={0: "UV_BUBBLE"}, read_image=False
+    )
+    total = len(dy)
+    print(f"Total samples: {total}")
 
+    dst_dir = rf"E:\ds\Bubble\toTrain\Bubble_{date_num}"
+    zero_pad = len(str(total))
+
+    def rename_copy_img(old_path, new_path, idx=None, image_name=None):
+        ext = os.path.splitext(new_path)[1]
+        new_name = f"UID{idx:0{zero_pad}d}_Bubble{ext}"
+        new_dir = os.path.dirname(new_path)
+        new_dst = os.path.join(new_dir, new_name)
+        shutil.copy(old_path, new_dst)
+
+    def rename_copy_lab(old_path, new_path, idx=None, image_name=None):
+        ext = os.path.splitext(new_path)[1]
+        new_name = f"UID{idx:0{zero_pad}d}_Bubble{ext}"
+        new_dir = os.path.dirname(new_path)
+        new_dst = os.path.join(new_dir, new_name)
+        shutil.copy(old_path, new_dst)
+
+    dump_yolo_dataset(
+        dy,
+        dst_dir,
+        image_file_op=rename_copy_img,
+        label_file_op=rename_copy_lab,
+    )
+    print(f"Done. Saved to {dst_dir}")
 
 if __name__ == "__main__":
     # test_YOLODataset()
