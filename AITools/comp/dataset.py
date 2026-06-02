@@ -1229,7 +1229,7 @@ class SeparateDataset(IterableDataset):
     def _parse_root(self, root, with_image, image_dirname):
         if with_image:
             if isinstance(root, list):
-                self._roots_map = {idx: r for idx, r in enumerate(root) if self.image_path_sep in r}
+                self._roots_map = {idx: r for idx, r in enumerate(root)}
             elif isinstance(root, (str, Path)):
                 if self.image_path_sep in str(root):
                     self._roots_map = {0: Path(root)}
