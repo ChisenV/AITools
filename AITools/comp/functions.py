@@ -879,6 +879,129 @@ def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=Tr
             raise e
 
 
+def convert_yolo2voc(yolo_dataset, save_dir, label_postfix=".xml"):
+    """Convert YOLO dataset labels (normalized) to VOC XML format (absolute pixel coords).
+
+    Args:
+        yolo_dataset: YOLODataset instance with labels
+        save_dir: directory to save the converted VOC XML labels
+        label_postfix: output file extension (default ".xml")
+    """
+    if not yolo_dataset.with_label:
+        print("yolo_dataset without label")
+        return
+    os.makedirs(save_dir, exist_ok=True)
+    for img_path, lab_path in yolo_dataset:
+        file_name = os.path.basename(lab_path).rsplit(".", 1)[0] + label_postfix
+        save_path = os.path.join(save_dir, file_name)
+        try:
+            if not os.path.exists(lab_path):
+                # No label file, write empty XML with just size info
+                h, w = imread(img_path).shape[:2]
+                data = {
+                    "annotation": {
+                        "folder": os.path.basename(os.path.dirname(img_path)),
+                        "filename": os.path.basename(img_path),
+                        "path": img_path,
+                        "source": {"database": "Unknown"},
+                        "size": {"width": w, "height": h, "depth": 3},
+                        "segmented": 0,
+                    }
+                }
+                XMLParser.dump(data, save_path, indent="")
+                continue
+
+            h, w = imread(img_path).shape[:2]
+
+            objects = []
+            with open(lab_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split()
+                    cls_id = int(parts[0])
+                    values = list(map(float, parts[1:]))
+
+                    cls_name = yolo_dataset.categories(cls_id)
+                    if cls_name is None:
+                        cls_name = str(cls_id)
+
+                    if yolo_dataset.task == "det":
+                        cx, cy, bw, bh = values
+                        # Convert from normalized center-x,y,w,h to pixel xmin,ymin,xmax,ymax
+                        xmin = (cx - bw / 2) * w
+                        ymin = (cy - bh / 2) * h
+                        xmax = (cx + bw / 2) * w
+                        ymax = (cy + bh / 2) * h
+                        obj = {
+                            "name": cls_name,
+                            "pose": "Unspecified",
+                            "truncated": 0,
+                            "difficult": 0,
+                            "bndbox": {
+                                "xmin": xmin,
+                                "ymin": ymin,
+                                "xmax": xmax,
+                                "ymax": ymax,
+                            },
+                        }
+                        objects.append(obj)
+
+                    elif yolo_dataset.task == "obb":
+                        # YOLO OBB format: cls_id x1 y1 x2 y2 x3 y3 x4 y4 (normalized)
+                        x1, y1, x2, y2, x3, y3, x4, y4 = values
+                        x1, y1 = x1 * w, y1 * h
+                        x2, y2 = x2 * w, y2 * h
+                        x3, y3 = x3 * w, y3 * h
+                        x4, y4 = x4 * w, y4 * h
+
+                        # Compute rotated box parameters from 4 corners
+                        points = np.array([[x1, y1], [x2, y2], [x3, y3], [x4, y4]], dtype=np.float32)
+                        rect = cv2.minAreaRect(points)
+                        (cx, cy), (rw, rh), angle = rect
+                        angle_rad = np.deg2rad(angle)
+
+                        obj = {
+                            "name": cls_name,
+                            "pose": "Unspecified",
+                            "truncated": 0,
+                            "difficult": 0,
+                            "type": "robndbox",
+                            "robndbox": {
+                                "cx": cx,
+                                "cy": cy,
+                                "w": rw,
+                                "h": rh,
+                                "angle": angle_rad,
+                            },
+                            "segmentation": {
+                                "x1": x1, "y1": y1,
+                                "x2": x2, "y2": y2,
+                                "x3": x3, "y3": y3,
+                                "x4": x4, "y4": y4,
+                            },
+                        }
+                        objects.append(obj)
+
+            data = {
+                "annotation": {
+                    "folder": os.path.basename(os.path.dirname(img_path)),
+                    "filename": os.path.basename(img_path),
+                    "path": img_path,
+                    "source": {"database": "Unknown"},
+                    "size": {"width": w, "height": h, "depth": 3},
+                    "segmented": 0,
+                    "object": objects if objects else {},
+                }
+            }
+
+            XMLParser.dump(data, save_path, indent="")
+        except Exception as e:
+            print(img_path, lab_path, str(e))
+            raise e
+
+
 def make_dirs(dir="new_dir/"):
     """Creates a directory with subdirectories 'labels' and 'images', removing existing ones."""
     dir = Path(dir)
