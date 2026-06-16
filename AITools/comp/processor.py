@@ -5,7 +5,12 @@ from typing import Any, Union, List
 import cv2
 import numpy as np
 from tqdm import tqdm
+import math
+import random
+from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
+from AITools import Config
 from AITools.base.process_def import BasePreprocessor, BaseProcessor
 from AITools.base.vision_def import IOConfig, ImageData, ImageFormat, IMG_FORMATS
 from AITools.comp import functions as F
@@ -594,6 +599,91 @@ class CropImages(BaseProcessor):
         return new_lines
 
 
+def str2numeric(string: str):
+    if string.isdigit():
+        return True, int(string)
+    else:
+        try:
+            return True, float(string)
+        except ValueError:
+            return False, string
+
+
+def get_start_point(img_file: str):
+    img_name_split = img_file.rsplit('.', 1)[0].split('_')
+    numeric_list = []
+    for i in img_name_split:
+        is_numeric, value = str2numeric(i)
+        if is_numeric:
+            numeric_list.append(value)
+    return numeric_list[3:5]
+
+
+def get_new_name(img_file: str):
+    img_name_split = img_file.rsplit('.', 1)[0].split('_')
+    for i in [9, 8, 7, 6, 5]:
+        img_name_split.pop(i)
+    return '_'.join(img_name_split)
+
+
+class RecombineImage:
+    def __init__(self, image_dir, save_dir, size: Union[int, list, tuple] = 2000, save_format='bmp'):
+        assert save_format in IMG_FORMATS, f'save_format must be one of [{IMG_FORMATS}]'
+        assert os.path.exists(image_dir), f'{image_dir} does not exist'
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        self.image_dir = image_dir
+        self.save_dir = save_dir
+        self.size = [size, size] if not isinstance(size, (list, tuple)) else size
+        self.save_format = save_format
+
+        self._channels = 1
+
+    def __call__(self, **kwargs):
+        image_list = [img_file for img_file in os.listdir(self.image_dir)
+                      if img_file.split('.')[-1] in IMG_FORMATS]
+        combine_images = {}
+        for img_file in image_list:
+            start_point = kwargs.get("start_point", get_start_point)(img_file)
+            new_name = kwargs.get("new_name", get_new_name)(img_file)
+            if new_name in combine_images.keys():
+                combine_images[new_name]['sub_images'].append({
+                    'image_path': os.path.join(self.image_dir, img_file),
+                    'start_point': start_point
+                })
+                combine_images[new_name]['max_x'] = max(combine_images[new_name]['max_x'],
+                                                        start_point[0] + self.size[0])
+                combine_images[new_name]['max_y'] = max(combine_images[new_name]['max_y'],
+                                                        start_point[1] + self.size[1])
+            else:
+                combine_images[new_name] = {
+                    'sub_images': [{
+                        'image_path': os.path.join(self.image_dir, img_file),
+                        'start_point': start_point,
+                    }],
+                    'max_x': start_point[0] + self.size[0],
+                    'max_y': start_point[1] + self.size[1]
+                }
+
+        with tqdm(total=len(combine_images), desc='recombine images') as pbar:
+            for image_name, value in combine_images.items():
+                sub_images = value['sub_images']
+                tmp = F.imread(sub_images[0]['image_path'], cv2.IMREAD_UNCHANGED)
+                self._channels = 1 if len(tmp.shape) == 2 else tmp.shape[2]
+                del tmp
+                recombine_content = np.zeros((value['max_y'], value['max_x'], self._channels)
+                                             if self._channels != 1 else (value['max_y'], value['max_x']),
+                                             dtype=np.uint8)
+                for each in sub_images:
+                    replacement_content = F.imread(each['image_path'], cv2.IMREAD_UNCHANGED)
+                    recombine_content[
+                        each['start_point'][1]:(each['start_point'][1] + self.size[0]),
+                        each['start_point'][0]:(each['start_point'][0] + self.size[1])
+                    ] = replacement_content
+                cv2.imwrite(os.path.join(self.save_dir, f'{image_name}.{self.save_format}'), recombine_content)
+                pbar.update(1)
+
+
 class PixelRuler:
     def __init__(self, step, length):
         self.step = step
@@ -640,3 +730,263 @@ class MosaicImage(BaseProcessor):
 
     def __call__(self, *args, **kwargs):
         pass
+
+
+class CropConfig:
+    def __init__(
+            self,
+            crop_width=1280,
+            crop_height=1280,
+            overlap_ratio_x=0.2,
+            overlap_ratio_y=0.2,
+            valid_ratio=0.8,
+            random_offset=False,
+            random_offset_ratio=0.1,
+            output_format="jpg",
+            jpg_quality=95,
+            workers=None):
+
+        self.crop_width = crop_width
+        self.crop_height = crop_height
+
+        self.overlap_ratio_x = overlap_ratio_x
+        self.overlap_ratio_y = overlap_ratio_y
+
+        self.valid_ratio = valid_ratio
+
+        self.random_offset = random_offset
+        self.random_offset_ratio = random_offset_ratio
+
+        self.output_format = output_format.lower()
+
+        self.jpg_quality = jpg_quality
+
+        self.workers = workers or os.cpu_count()
+
+
+class CropImagesV2(BaseProcessor):
+    """
+        cfg = CropConfig(
+            crop_width=1280,
+            crop_height=1280,
+            overlap_ratio_x=0.25,
+            overlap_ratio_y=0.25,
+            valid_ratio=0.8,
+            random_offset=True,
+            random_offset_ratio=0.1,
+            output_format="jpg",
+            jpg_quality=95,
+            workers=16
+        )
+
+        cropper = CropImage(cfg)
+
+        # 单文件
+        # cropper.process(
+        #     "test.jpg",
+        #     "output"
+        # )
+
+        # 文件夹
+        cropper.process(
+            r"D:\images",
+            r"D:\patches"
+        )
+
+        # 文件列表
+        # cropper.process(
+        #     [
+        #         "a.jpg",
+        #         "b.jpg",
+        #         "c.jpg"
+        #     ],
+        #     "output"
+        # )
+    """
+    IMAGE_EXTS = IMG_FORMATS
+
+    def __init__(self, config: Union[Config, CropConfig], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cfg = config
+
+    def __call__(self, *args, **kwargs):
+        self.process(*args, **kwargs)
+
+    def run(self, *args, **kwargs) -> Any:
+        self.process(*args, **kwargs)
+
+    def process(self, source, output_dir):
+        files = self._collect_files(source)
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        print(f"Found {len(files)} images")
+        with ThreadPoolExecutor(max_workers=self.cfg.workers) as pool:
+            futures = []
+
+            for file in files:
+                futures.append(
+                    pool.submit(self._process_one_image, file, output_dir)
+                )
+
+            for f in futures:
+                f.result()
+
+    def _collect_files(self, source):
+        if isinstance(source, str):
+            p = Path(source)
+
+            if p.is_file():
+                return [p]
+            if p.is_dir():
+                files = []
+                for ext in self.IMAGE_EXTS:
+                    files.extend(p.rglob(f"*{ext}"))
+                    files.extend(p.rglob(f"*{ext.upper()}"))
+
+                return sorted(files)
+
+        elif isinstance(source, list):
+            return [Path(x) for x in source]
+
+        raise ValueError("Unsupported input")
+
+    def _calc_axis_positions(
+            self,
+            image_size,
+            crop_size,
+            overlap_ratio,
+            valid_ratio):
+
+        if image_size <= crop_size:
+            return [0]
+
+        effective = image_size - crop_size * valid_ratio
+        ideal_stride = crop_size * (1 - overlap_ratio)
+        n = math.ceil(effective / ideal_stride) + 1
+
+        if n <= 1:
+            return [0]
+
+        real_stride = (image_size - crop_size) / (n - 1)
+        pos = []
+
+        for i in range(n):
+            p = round(i * real_stride)
+            p = min(max(0, p), image_size - crop_size)
+            pos.append(p)
+
+        return sorted(list(set(pos)))
+
+    def _process_one_image(self, image_path, output_dir):
+        image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if image is None:
+            print(f"Failed: {image_path}")
+            return
+
+        h, w = image.shape[:2]
+
+        xs = self._calc_axis_positions(
+            w,
+            self.cfg.crop_width,
+            self.cfg.overlap_ratio_x,
+            self.cfg.valid_ratio
+        )
+        ys = self._calc_axis_positions(
+            h,
+            self.cfg.crop_height,
+            self.cfg.overlap_ratio_y,
+            self.cfg.valid_ratio
+        )
+
+        basename = image_path.stem
+        count = 0
+
+        for y in ys:
+            for x in xs:
+                x0, y0 = x, y
+
+                if self.cfg.random_offset:
+                    stride_x = int(self.cfg.crop_width * (1 - self.cfg.overlap_ratio_x))
+                    stride_y = int(self.cfg.crop_height * (1 - self.cfg.overlap_ratio_y))
+
+                    dx = random.randint(
+                        -int(stride_x * self.cfg.random_offset_ratio),
+                        int(stride_x * self.cfg.random_offset_ratio)
+                    )
+                    dy = random.randint(
+                        -int(stride_y * self.cfg.random_offset_ratio),
+                        int(stride_y * self.cfg.random_offset_ratio)
+                    )
+
+                    x0 += dx
+                    y0 += dy
+
+                x0 = max(0, min(x0, w - self.cfg.crop_width))
+                y0 = max(0, min(y0, h - self.cfg.crop_height))
+
+                crop = image[
+                    y0:y0+self.cfg.crop_height,
+                    x0:x0+self.cfg.crop_width
+                ]
+
+                valid_ratio = (crop.shape[0] * crop.shape[1]) / (self.cfg.crop_width * self.cfg.crop_height)
+
+                if valid_ratio < self.cfg.valid_ratio:
+                    continue
+
+                filename = (
+                    f"{basename}"
+                    f"_x{x0}"
+                    f"_y{y0}"
+                    f".{self.cfg.output_format}"
+                )
+
+                save_path = output_dir / filename
+
+                self._save_image(crop, save_path)
+
+                count += 1
+
+        print(f"{image_path.name} -> {count} patches")
+
+    def _save_image(self, image, save_path):
+
+        ext = self.cfg.output_format
+
+        if ext in ("jpg", "jpeg"):
+            F.imwrite(
+                str(save_path),
+                image,
+                [
+                    cv2.IMWRITE_JPEG_QUALITY,
+                    self.cfg.jpg_quality
+                ]
+            )
+
+        elif ext == "png":
+            F.imwrite(
+                str(save_path),
+                image,
+                [
+                    cv2.IMWRITE_PNG_COMPRESSION,
+                    3
+                ]
+            )
+
+        elif ext == "webp":
+            F.imwrite(
+                str(save_path),
+                image,
+                [
+                    cv2.IMWRITE_WEBP_QUALITY,
+                    95
+                ]
+            )
+
+        else:
+            F.imwrite(
+                str(save_path),
+                image
+            )

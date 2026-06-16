@@ -67,24 +67,24 @@ def collect_img(input_dir, output_dir):
 
 
 if __name__ == '__main__':
-    input_dir = r"E:\ds\ColorRing\collect\色环电阻库"
-    output_dir = r"E:\ds\ColorRing\collect\ColorRing_20260521"
-    output_dir2 = r"E:\ds\ColorRing\collect\ColorRing_20260521\NG\ColorRing_20260521"
+    input_dir = r"E:\ds\ColorRing\collect\爱能科6.2号色坏学习RunTime"
+    output_dir = r"E:\ds\ColorRing\collect\ColorRing_20260603"
+    output_dir2 = r"E:\ds\ColorRing\collect\ColorRing_20260603\NG\ColorRing_20260603"
     # collect_img(input_dir, output_dir)
 
     # top_dir = Path(r"E:\python_ai_dataset\ColorRing\annoed")
     # input_dirs = [r"ColorRing_20260323", r"ColorRing_20260408", r"ColorRing_20260409",]
-    id_offset = 729
+    id_offset = 929
     # rename(output_dir2, id_offset, include_yolo_label=False)
     # for i in input_dirs:
     #     input_dir = Path(top_dir) / i
     #     convert_coco2yolo_cr_dataset(input_dir)
 
-    anno_dir = r"E:\ds\ColorRing\anno\ColorRing_20260521"
+    anno_dir = r"E:\ds\ColorRing\anno\ColorRing_20260603"
     cate = convert_coco2yolo_cr_dataset(anno_dir)
     # rename(Path(input_dir) / "images", id_offset, include_yolo_label=True)
 
-    # d = YOLODataset(input_dir, categories=cate, task='seg', fix_bad_data=True)
+    # d = YOLODataset(anno_dir, categories=cate, task='seg', fix_bad_data=True)
 
     # convert_yolo2coco(d, Path(input_dir) / "annotations.json")
 

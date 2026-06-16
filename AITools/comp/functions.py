@@ -805,7 +805,11 @@ def convert_voc2yolo(voc_dataset, save_dir, label_postfix=".txt", empty_label=Tr
                 xml_dump = True
             with open(os.path.join(save_dir, file_name), "w") as f:
                 for i, obj in enumerate(objs):
-                    cla_id = voc_dataset.categories(obj['name'])
+                    try:
+                        cla_id = voc_dataset.categories(obj['name'])
+                    except KeyError:
+                        print(f"{file_name} not exist")
+                        continue
                     if cla_id is None:
                         continue
                     if voc_dataset.task == "det":
@@ -930,10 +934,12 @@ def convert_yolo2voc(yolo_dataset, save_dir, label_postfix=".xml"):
                     if yolo_dataset.task == "det":
                         cx, cy, bw, bh = values
                         # Convert from normalized center-x,y,w,h to pixel xmin,ymin,xmax,ymax
-                        xmin = (cx - bw / 2) * w
-                        ymin = (cy - bh / 2) * h
-                        xmax = (cx + bw / 2) * w
-                        ymax = (cy + bh / 2) * h
+                        xmin = int(round((cx - bw / 2) * w, 0))
+                        ymin = int(round((cy - bh / 2) * h, 0))
+                        xmax = int(round((cx + bw / 2) * w, 0))
+                        ymax = int(round((cy + bh / 2) * h, 0))
+                        if xmin >= xmax or ymin >= ymax or xmax - xmin < 3 or ymax - ymin < 3:
+                            continue
                         obj = {
                             "name": cls_name,
                             "pose": "Unspecified",
@@ -984,6 +990,9 @@ def convert_yolo2voc(yolo_dataset, save_dir, label_postfix=".xml"):
                         }
                         objects.append(obj)
 
+            if not objects:
+                continue
+
             data = {
                 "annotation": {
                     "folder": os.path.basename(os.path.dirname(img_path)),
@@ -996,7 +1005,7 @@ def convert_yolo2voc(yolo_dataset, save_dir, label_postfix=".xml"):
                 }
             }
 
-            XMLParser.dump(data, save_path, indent="")
+            XMLParser.dump(data, save_path)
         except Exception as e:
             print(img_path, lab_path, str(e))
             raise e

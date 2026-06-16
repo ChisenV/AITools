@@ -1399,7 +1399,7 @@ class SeparateDataset(IterableDataset):
             with_label=self.with_label,
             image_dirname=self.image_dirname,
             label_dirname=self.label_dirname,
-            categories=self._cate_id2name,
+            categories=self._cate_id2name if self._cate_id2name else None,
             task=self.task,
             read_image=self._read_image,
             transformers=self.transformers,
@@ -1794,7 +1794,7 @@ def _filter_kwargs(func, kwargs):
 
 
 def dump_yolo_dataset(
-    dataset: YOLODataset,
+    dataset: SeparateDataset,
     destination: str,
     image_file_op: Union[str, Callable] = "copy",
     label_file_op: Union[str, Callable] = "copy",
@@ -1802,6 +1802,7 @@ def dump_yolo_dataset(
     label_dirname: str = "labels",
     sub_dirname: str = "",
     tqdm_enable: bool = True,
+    label_file_postfix: str = ".txt"
 ):
     if not dataset:
         raise ValueError("Dataset is empty.")
@@ -1826,24 +1827,55 @@ def dump_yolo_dataset(
         iterator = tqdm(dataset, desc=f"Dumping dataset") if tqdm_enable else dataset
         for idx, (old_image_path, old_label_path) in enumerate(iterator):
             image_name = old_image_path.rsplit(dataset.image_path_sep, 1)[1]
-            if sub_dirname == "":
-                path_piece = [destination, image_dirname, image_name]
-            else:
-                path_piece = [destination, image_dirname, sub_dirname, image_name]
+            if isinstance(sub_dirname, str):
+                if sub_dirname == "":
+                    path_piece = [destination, image_dirname, image_name]
+                else:
+                    path_piece = [destination, image_dirname, sub_dirname, image_name]
+            elif isinstance(sub_dirname, list):
+                if len(sub_dirname) == 0:
+                    path_piece = [destination, image_dirname, image_name]
+                else:
+                    path_piece = [destination, image_dirname, *sub_dirname, image_name]
             new_image_path = os.path.join(*path_piece)
-            new_label_path = img2label_path(new_image_path, image_dirname, label_dirname)
+            new_label_path = img2label_path(new_image_path, image_dirname, label_dirname, postfix=label_file_postfix)
             if os.path.exists(new_image_path) or os.path.exists(new_label_path):
                 print("Exists:", new_image_path, new_label_path)
                 continue
             new_image_dir = os.path.dirname(new_image_path)
             os.makedirs(new_image_dir, exist_ok=True)
-            new_label_dir = os.path.dirname(new_label_path)
-            os.makedirs(new_label_dir, exist_ok=True)
             extra_kwargs = dict(idx=idx, image_name=image_name)
             img_op(old_image_path, new_image_path, **_filter_kwargs(img_op, extra_kwargs))
-            lab_op(old_label_path, new_label_path, **_filter_kwargs(lab_op, extra_kwargs))
+            if dataset.with_label:
+                new_label_dir = os.path.dirname(new_label_path)
+                os.makedirs(new_label_dir, exist_ok=True)
+                lab_op(old_label_path, new_label_path, **_filter_kwargs(lab_op, extra_kwargs))
     except Exception as e:
         raise e
+
+
+def dump_voc_dataset(
+    dataset: SeparateDataset,
+    destination: str,
+    image_file_op: Union[str, Callable] = "copy",
+    label_file_op: Union[str, Callable] = "copy",
+    image_dirname: str = "images",
+    label_dirname: str = "labels",
+    sub_dirname: str = "",
+    tqdm_enable: bool = True,
+    label_file_postfix: str = ".xml"
+):
+    dump_yolo_dataset(
+        dataset,
+        destination,
+        image_file_op,
+        label_file_op,
+        image_dirname,
+        label_dirname,
+        sub_dirname,
+        tqdm_enable,
+        label_file_postfix
+    )
 
 
 class VOCDataset(SeparateDataset):
@@ -1871,7 +1903,7 @@ class VOCDataset(SeparateDataset):
     def img2label_path(self, image_path, label_postfix=".xml"):
         return self.label_path_sep.join(image_path.rsplit(self.image_path_sep, 1)).rsplit(".", 1)[0] + label_postfix
 
-    def _parse_label_file(self, label_path):
+    def _parse_label_file(self, label_path, fix_data=False):
         """
         Parse YOLO format annotation file for different tasks.
 
@@ -1902,7 +1934,7 @@ class VOCDataset(SeparateDataset):
                         if "name" in label["object"].keys():
                             categories.add(label["object"]["name"])
                 else:
-                    print("object is null")
+                    print("object is null:", label_path)
         self._cate_id2name = {cid: name for cid, name in enumerate(categories)}
         self._cate_name2id = {v: k for k, v in self._cate_id2name.items()}
 
@@ -1917,7 +1949,8 @@ class VOCDataset(SeparateDataset):
                             sample_info[obj["name"]] = sample_info.get(obj["name"], 0) + 1
                     else:
                         if "name" in label["object"].keys():
-                            sample_info[obj["name"]] = sample_info.get(obj["name"], 0) + 1
+                            sample_info[label["object"]["name"]] = sample_info.get(
+                                label["object"]["name"], 0) + 1
                 else:
-                    print("object is null")
+                    print("object is null:", label_path)
         return sample_info
