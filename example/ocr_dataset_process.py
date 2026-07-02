@@ -57,7 +57,8 @@ def box_random_expand(
     dataset: OCRDatasetV2,
     expand_ratio: Union[float, List[float]],
     expand_direction: Union[str, List[str]],
-    seed: int = None
+    seed: int = None,
+    sample_ratio: float = None,
 ):
     if isinstance(expand_ratio, float):
         expand_ratio = [expand_ratio]
@@ -75,6 +76,8 @@ def box_random_expand(
     if not getattr(dataset, "with_label", False):
         return
 
+    if sample_ratio is not None:
+        dataset = dataset.subset(dataset.sample(ratio=sample_ratio, seed=seed))
     for i, (pa, la) in enumerate(dataset):
         img = imread(pa)
         if img is None:
@@ -1168,6 +1171,7 @@ def OCRRECDatesetV2_dump_for_AITrain(rec_dir, dst_dir, direct="to"):
         [os.path.join(i, "Label.txt") for i in det_paths_level1(dst_dir)],
         os.path.join(dst_dir, "Label.txt")
     )
+    return len(d)
 
 
 def split_OCRRECDatasetV2(dir_list, out_dir, split_ratio=None, seed=None, vis=False):
@@ -1209,6 +1213,202 @@ def ocr_rec_process():
     ],
         f"{out_dir}_split",
         split_ratio=split_ratio,
+        vis=False
+    )
+
+
+def ocr_rec_process_v2():
+    ocr_det_derived = rf"E:\ds\OCR\anno\Det\Derive\derived_20260518"
+    ocr_rec_stable = r"E:\ds\OCR\anno\Rec\Stable\categories_20260303"
+    ocr_rec_stable_AITrain = rf"E:\ds\OCR\anno\Rec\AITrain\categories_{date_num}"
+    ocr_rec_expand = fr"E:\ds\OCR\anno\Rec\Expand\expand_{date_num}"
+    ocr_rec_expand_AITrain = fr"E:\ds\OCR\anno\Rec\AITrain\expand_{date_num}"
+    ocr_rec_reversed = rf"E:\ds\OCR\anno\Rec\Reversed\reversed_{date_num}"
+    ocr_rec_reversed_AITrain = rf"E:\ds\OCR\anno\Rec\AITrain\reversed_{date_num}"
+    rotate_list_fp = r"E:\ds\OCR\anno\Rec\Expand\rotate_list_20260627.yml"
+    replace_list_file = r"E:\ds\OCR\anno\Rec\replace_list.txt"
+
+    AITrain_output = rf"E:\ds\OCR\anno\Rec\AITrain\ocr_rec_{date_num}"
+
+    # 裁剪随机边缘拓展的
+    def process_expand_p1():
+        all_dir = get_all_dir(ocr_det_derived)
+        commonpath = os.path.commonpath(all_dir)
+        det_dataset_map = {
+            i: OCRDatasetV2(i, with_label=True, subject_to='label')
+            for i in all_dir
+        }
+        def expand_ratio(p):
+            if "SMT_EleCapacitors" in p:
+                return [0.3, 0.3, 0.25, 0.25]
+            elif "SMT_IC" in p or "SMT_IC" in p:
+                return [0.3, 0.3, 0.2, 0.2]
+            elif "SMT_Inductor" in p or "SMT_QFN" in p:
+                return [0.3, 0.3, 0.2, 0.2]
+            elif "SMT_Mosfet" in p:
+                return [0.4, 0.4, 0.45, 0.45]
+            elif "Others" in p or "SMT_Diode" in p:
+                return [0.4, 0.4, 0.35, 0.35]
+            else:
+                return [0.35, 0.35, 0.35, 0.35]
+
+        expand_datasets = {
+            path: box_random_expand(
+                dataset,
+                expand_ratio=expand_ratio(path),
+                expand_direction=["left", "right", "top", "bottom"],
+                seed=date_num,
+                # sample_ratio=0.3  # 因为不是所有的文字都是横向的，所以不要提前采样
+            )
+            for path, dataset in tqdm(det_dataset_map.items(), desc="box random expand")
+        }
+        do_matting(expand_datasets, f"{ocr_rec_expand}_tmp", commonpath)
+
+    def process_expand_p2(offset=0):
+        # P2
+        expand_tmp_dirs = get_all_dir(f"{ocr_rec_expand}_tmp")
+        rotate_dict = YMLParser.load(path=rotate_list_fp)
+        commonpath = os.path.commonpath(expand_tmp_dirs)
+
+        def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+            if not os.path.exists(_img_path):
+                print(f"img not exists: {_img_path}")
+                return
+            if not any(c in _label_data for c in unidirect_char):
+                return
+            img_path = Path(_img_path)
+            ext = img_path.suffix
+            parent = img_path.parent
+            basename = img_path.name
+            dirname = os.path.basename(parent)
+
+            relative_dirs = str(parent).replace(commonpath, "").split(os.sep)[1:]
+
+            rotate_file = get_files_by_path(rotate_dict, relative_dirs)
+
+            for rf in rotate_file:
+                if basename.split(SEP_CHAR)[0] in rf:
+                    return
+            # basename = SEP_CHAR.join([f"MID{index + offset}"] + basename.split(f"{SEP_CHAR}")[1:])
+
+            shutil.move(_img_path, os.path.join(_dst_dir, basename))
+            _label_file.write(f"{dirname}/{basename}\t{_label_data}\n")
+
+        expand_tmp_ds = OCRRECDatasetV2(expand_tmp_dirs, with_label=True, subject_to='label')
+        expand_ds = expand_tmp_ds.subset(expand_tmp_ds.sample(0.36))
+        dump_ocr_dataset(
+            expand_ds,
+            ocr_rec_expand,
+            custom_image_label_op=image_label_op
+        )
+        shutil.rmtree(f"{ocr_rec_expand}_tmp")
+
+        # offset = len(expand_ds)
+        out_offset = offset
+
+        # 重命名
+        def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+            nonlocal out_offset
+            dirname = os.path.basename(_dst_dir)
+            basename = os.path.basename(_img_path)
+            basename = SEP_CHAR.join([f"MID{index + offset}"] + basename.split(SEP_CHAR)[1:])
+            os.rename(_img_path, os.path.join(_dst_dir, basename))
+            _label_file.write(f"{dirname}/{basename}\t{_label_data}\n")
+            out_offset = index + offset + 1
+
+        dump_ocr_dataset(
+            OCRRECDatasetV2(get_all_dir(ocr_rec_expand), with_label=True, subject_to='label'),
+            ocr_rec_expand,
+            custom_image_label_op=image_label_op,
+            overwriting=True
+        )
+
+        union_label_all_OCRDatasetV2(f"{ocr_rec_expand}/DIP_OCR")
+        union_label_all_OCRDatasetV2(ocr_rec_expand)
+        union_label(
+            [os.path.join(i, "Label.txt") for i in det_paths_level1(ocr_rec_expand)],
+            os.path.join(ocr_rec_expand, "Label.txt")
+        )
+        return out_offset
+
+    def process_reverse(offset, angle=180):
+        d = OCRRECDatasetV2(get_all_dir(ocr_rec_stable), with_label=True, subject_to='label')
+        if offset is None:
+            offset = len(d)
+
+        commonpath = os.path.commonpath(get_all_dir(ocr_rec_stable))
+
+        rm = {}
+        with open(replace_list_file, 'r') as f:
+            for line in f:
+                key, value = line.strip().split('\t')
+                rm[key] = value
+
+        _index = 0
+
+        def image_label_op(_dst_dir, _img_path: str, _label_data=None, _label_file=None, _label_op=None, index=None):
+            nonlocal _index
+            if not os.path.exists(_img_path):
+                print(f"img not exists: {_img_path}")
+                return
+            if not any(c in _label_data for c in unidirect_char):
+                return
+            img_path = Path(_img_path)
+            ext = img_path.suffix
+            parent = img_path.parent
+            uid = os.path.basename(img_path).split(SEP_CHAR)[1]
+            relative_parts = [uid] + str(parent).replace(commonpath, "").split(os.sep)[1:]
+            if not any("Type" in r for r in relative_parts):
+                relative_parts = relative_parts + ["Type0"]
+            name_parts = [f"MID{_index + offset}"]
+
+            # if index is not None:
+            _index += 1
+
+            if relative_parts:
+                name_parts.append(SEP_CHAR.join(relative_parts))
+
+            im = imread(_img_path)
+
+            dirname = os.path.basename(_dst_dir)
+            _label_str = reverse_order_ocr_string(_label_data, rm)
+            name_parts.append("{" + sanitize_filename(_label_str) + "}")
+            basename = SEP_CHAR.join(name_parts) + ext
+
+            if _label_file is not None:
+                _label_file.write(f"{dirname}/{basename}\t{_label_str}\n")
+            im = rotate_image_around_point(im, (im.shape[1] // 2, im.shape[0] // 2), angle)
+            imwrite(os.path.join(_dst_dir, basename), im)
+
+        dump_ocr_dataset(
+            d.subset(d.sample(0.32)),
+            ocr_rec_reversed,
+            custom_image_label_op=image_label_op,
+        )
+        union_label_all_OCRDatasetV2(f"{ocr_rec_reversed}/DIP_OCR")
+        union_label_all_OCRDatasetV2(ocr_rec_reversed)
+        union_label(
+            [os.path.join(i, "Label.txt") for i in det_paths_level1(ocr_rec_reversed)],
+            os.path.join(ocr_rec_reversed, "Label.txt")
+        )
+
+    process_expand_p1()
+    ofs = process_expand_p2(32350)
+    # 可能需要手动去做非横向文字的图像旋转工作
+    process_reverse(ofs)
+    OCRRECDatesetV2_dump_for_AITrain(ocr_rec_stable,
+                                     ocr_rec_stable_AITrain, direct="to")
+    OCRRECDatesetV2_dump_for_AITrain(ocr_rec_expand,
+                                     ocr_rec_expand_AITrain, direct="to")
+    OCRRECDatesetV2_dump_for_AITrain(ocr_rec_reversed,
+                                     ocr_rec_reversed_AITrain, direct="to")
+    split_OCRRECDatasetV2([
+            ocr_rec_stable_AITrain,
+            ocr_rec_expand_AITrain,
+            ocr_rec_reversed_AITrain
+        ],
+        f"{AITrain_output}_split",
+        split_ratio=[0.6, 0.2, 0.2],
         vis=False
     )
 
@@ -1404,4 +1604,5 @@ if __name__ == "__main__":
     # print(YMLParser.dumps(d, allow_unicode=True, indent=2))
 
     # ocr_det_dataset2yolo()
-    ocr_det_process_v2()
+    # ocr_det_process_v2()
+    ocr_rec_process_v2()

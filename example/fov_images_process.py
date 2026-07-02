@@ -378,7 +378,7 @@ def process_image(image_path, output_dir, suffix="png"):
 
 
 def crop_image_v2():
-    cfg = Config(
+    cfg = CropConfig(
         crop_width=1280,
         crop_height=1280,
         overlap_ratio_x=0.1,
@@ -449,5 +449,9 @@ def main():
     # crop_image_v2()
 
 if __name__ == "__main__":
-    main()
+    # main()
     # split()
+
+    CropImages(r"E:\ds\Anomaly\test\Fov",
+        r"E:\ds\Anomaly\test\Fov-crop1280",
+                       1280,1280)()
