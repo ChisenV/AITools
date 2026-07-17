@@ -587,8 +587,9 @@ class CropImages(BaseProcessor):
             # 寻找新轮廓（使用最外层轮廓）
             contours, _ = cv2.findContours(crop_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_KCOS)
             for contour in contours:
-                if not self.label_selector(contour=contour, crop_h=cropped_h, crop_w=cropped_w, class_id=class_id):
-                    continue
+                if self.label_selector is not None:
+                    if not self.label_selector(contour=contour, crop_h=cropped_h, crop_w=cropped_w, class_id=class_id):
+                        continue
                 if len(contour) >= 3:  # 有效多边形至少需要3个点
                     # 转换为相对坐标
                     rel_points = contour.squeeze().astype(np.float32) / [cropped_w, cropped_h]

@@ -76,8 +76,8 @@ def collect_all_dataset(dirs, dst_dir=rf"E:\ds\Bubble\toTrain\Bubble_{date_num}"
     print(f"Done. Saved to {dst_dir}")
     return len(dyn)
 
-def split_dataset(dir_data, dst_data):
-    dy = YOLODataset(dir_data,image_dirname="JPEGImages",
+def split_dataset(dir_data, dst_data, image_dirname="JPEGImages", label_dirname="labels"):
+    dy = YOLODataset(dir_data,image_dirname=image_dirname, label_dirname=label_dirname,
                      with_label=True,
                      categories={0: "UV_BUBBLE"})
     subset = dy.split(ratio=[0.85, 0.15], seed=date_num)
@@ -132,8 +132,8 @@ if __name__ == "__main__":
         r"E:\ds\Bubble\anno\BUBBLE-AIDIAN-V2"
     ]
     # 1. 标注好的先转成yolo, 可视化检查标注，然后裁剪
-    for anno_dir in anno_dirs:
-        convert_crop_VOCDataset(anno_dir)
+    # for anno_dir in anno_dirs:
+    #     convert_crop_VOCDataset(anno_dir)
     # 2. 收集所有裁剪的数据集并重命名好
     dirs = [
         r"E:\ds\Bubble\anno\BUBBLE-1\images_crop_1024\images",
@@ -142,5 +142,12 @@ if __name__ == "__main__":
         r"E:\ds\Bubble\anno\BUBBLE-AIDIAN-V2\images_crop_1024\images",
         r"E:\ds\Bubble\anno\UV_BUBBLE\images_crop_1024\images",
     ]
-    next_idx = collect_all_dataset(dirs, offset=0)
-    print(f"{next_idx = }")
+    # next_idx = collect_all_dataset(dirs, offset=0)
+    # print(f"{next_idx = }")
+
+    split_dataset(
+        dirs,
+        rf"E:\ds\Bubble\toTrain\Bubble_{date_num}",
+        "images",
+        "labels"
+    )

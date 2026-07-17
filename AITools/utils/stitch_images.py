@@ -488,7 +488,8 @@ def stitch_images(
                       with_label=True,
                       task="seg",
                       categories=categories,
-                      read_image=False)
+                      read_image=False,
+                      fix_bad_data=True)
     if rename:
         for idx, i in enumerate(ds2):
             im_path, la_path = i

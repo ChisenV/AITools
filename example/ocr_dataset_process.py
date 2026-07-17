@@ -349,7 +349,10 @@ def union_label_all_OCRDatasetV2(latest_dir):
 
 def reverse_OCRDatasetV2(top_dir, offset=None, angle=180, sample_rate=0.3):
     if offset is None:
-        d_SMT = OCRDatasetV2(top_dir, with_label=True, subject_to='label')
+        cls_dirs = det_paths_level1(top_dir)
+        for i in cls_dirs:
+            cls_dirs += det_paths_level1(i)
+        d_SMT = OCRDatasetV2(cls_dirs, with_label=True, subject_to='label')
         offset = len(d_SMT)
 
     reversible_list_path = os.path.join(top_dir, "reversible_list.txt")
@@ -529,6 +532,13 @@ def get_files_by_path(tree: dict, path_list: list):
     return []
 
 
+def vis_ocrdataset():
+    n = "38-OCR-20260630"
+    p = rf"E:\ds\OCR\anno\Det\Primal\{n}"
+    new_subset = OCRDatasetV2(p, with_label=True, subject_to='image')
+    VisualizeOCRDataset(new_subset, save_dir=rf"E:\ds\OCR\vis\{n}")()
+
+
 def ocr_det_process():
     primal_dir = r"E:\python_ai_dataset\OCR\det\Label_new"
     classified_dir = r"E:\python_ai_dataset\OCR\det\gather\categoriesV2"  # 需要手动从primal_dir分类到classified_dir
@@ -560,23 +570,27 @@ def ocr_det_process():
 
 
 def ocr_det_process_v2():
+    top_dir = Path(r"E:\ds\OCR\anno\Det")
+    reversible_list_file = top_dir / "reversible_list.txt"
+    replace_list_file = top_dir / "replace_list.txt"
     # 原始的数据集由标注员标注完成，数据是按时间批次标注，是一个长期累积的集合;
     # 其中的标注数据是有可能标注错误或者不规范的，且数据是杂乱的不经分类的
     # 以primal的标注数据为基础
-    primal_data_dirs_top = Path(r"E:\ds\OCR\anno\Primal")
+    primal_data_dirs_top = top_dir / "Primal"
     primal_data_dir_list = [primal_data_dirs_top / i for i in os.listdir(primal_data_dirs_top)]
     # 手动地从primal_data_dir分类到classified_dir中，是不带标注数据的
     # 以Categorized的图像数据为基础
-    classified_dir = Path(r"E:\ds\OCR\anno\Categorized\categories_20260224")
+    classified_dir = top_dir / "Categorized" / "categories_20260224"
     # 一个stable带标注数据集，是按classified_dir的分类，并且文件被重命名了，如果标注有错误可以在这里用PPOCRLabel修改
     # 以stable的标注数据为标准，标准标注数据会覆盖基础数据
-    stable_label_dir = r"E:\ds\OCR\anno\Stable\categorized_20260303"
+    stable_label_dir = top_dir / "Stable" / "categorized_20260303"
     # 处理后的衍生最终版本
-    derivative_dir = rf"E:\ds\OCR\anno\Derive\derived_{date_num}"
-    derivative_rotate_dir = rf"E:\ds\OCR\anno\Derive\derived_{date_num}_r"
+    derivative_dir = top_dir / "Derive" / f"derived_{date_num}"
+    derivative_rotate_dir = top_dir / "Derive" / f"derived_{date_num}_rotate"
     # 分好训练验证测试集进行
-    AITrain_dir = rf"E:\ds\OCR\anno\AITrain\OCRV6.6_{date_num}"
+    AITrain_dir = top_dir / "AITrain" / f"OCRV6.6_{date_num}"
     split_ratio = [0.72, 0.16, 0.12]
+    rotate_angle_list = [90, 180, 270]
 
     def step1():
         def get_exclude_list(path):
@@ -811,7 +825,7 @@ def ocr_det_process_v2():
             ext = img_path.suffix  # include .jpg
             parent = img_path.parent
             img = imread(str(img_path))
-            angle = random.choice([90, 180, 270])
+            angle = random.choice(rotate_angle_list)
             relative_parts = str(parent).replace(commonpath, "").split(os.sep)[1:]
 
             # rimg, M = rotate_image_auto(img, angle)
@@ -904,9 +918,12 @@ def ocr_det_process_v2():
         # dump_ocr_dataset(ds, dst_dir, custom_image_label_op=for_AITrain, overwriting=True)
         # del ds, all_dirs
 
-    # step1()
-    # step2()
-    OCRDatesetV2_dump_for_AITrain([derivative_dir, derivative_rotate_dir], AITrain_dir)
+    step1()
+    step2()
+    shutil.copy(reversible_list_file, derivative_dir)
+    shutil.copy(replace_list_file, derivative_dir)
+    reverse_OCRDatasetV2(str(derivative_dir), sample_rate=0.30)
+    # OCRDatesetV2_dump_for_AITrain([derivative_dir, rf"{derivative_dir}_reversible"], AITrain_dir)
 
 
 def rename_dir_images():
@@ -1603,6 +1620,8 @@ if __name__ == "__main__":
     # d = parse_tree_diff(r"C:\Users\WQS\Desktop\h.txt")
     # print(YMLParser.dumps(d, allow_unicode=True, indent=2))
 
+    # vis_ocrdataset()
+
     # ocr_det_dataset2yolo()
-    # ocr_det_process_v2()
-    ocr_rec_process_v2()
+    ocr_det_process_v2()
+    # ocr_rec_process_v2()
